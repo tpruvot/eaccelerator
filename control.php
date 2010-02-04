@@ -288,9 +288,6 @@ switch ($sec) {
         if (isset($_POST['optoff']) && function_exists('eaccelerator_optimizer')) eaccelerator_optimizer(false);
         if (isset($_POST['opton']) && function_exists('eaccelerator_optimizer')) eaccelerator_optimizer(true);
 
-        if (isset($_POST['mtimeoff'])) eaccelerator_check_mtime(false);
-        if (isset($_POST['mtimeon'])) eaccelerator_check_mtime(true);
-
         if (isset($_POST['clear'])) eaccelerator_clear();
         if (isset($_POST['clean'])) eaccelerator_clean();
         if (isset($_POST['purge'])) eaccelerator_purge();
@@ -315,10 +312,6 @@ switch ($sec) {
     <td class="fl"><?php echo $info['optimizer'] ? '<span style="color:green"><b>yes</b></span>&nbsp;&nbsp;&nbsp;<input type="submit" name="optoff" value=" Disable "/>':'<span style="color:red"><b>no</b></span>&nbsp;&nbsp;&nbsp;<input type="submit" name="opton" value=" Enable "/>' ?></td>
 </tr>
 <tr>
-    <td class="er">Check mtime enabled</td>
-    <td class="fl"><?php echo $info['check_mtime'] ? '<span style="color:green"><b>yes</b></span>&nbsp;&nbsp;&nbsp;<input type="submit" name="mtimeoff" value=" Disable "/>':'<span style="color:red"><b>no</b></span>&nbsp;&nbsp;&nbsp;<input type="submit" name="mtimeon" value=" Enable "/>' ?></td>
-</tr>
-<tr>
     <td class="er">Total memory</td>
     <td class="fl"><?php echo format_size($info['memorySize']); ?></td>
 </tr>
@@ -336,10 +329,6 @@ switch ($sec) {
 <tr>
     <td class="er">Cached scripts</td>
     <td class="fl"><?php echo number_format($info['cachedScripts']); ?></td>
-</tr>
-<tr>
-    <td class="er">Removed scripts</td> 
-    <td class="fl"><?php echo number_format($info['removedScripts']); ?></td>
 </tr>
 </table>
 </form>
@@ -395,14 +384,6 @@ switch ($sec) {
         /******************************     SCRIPT CACHE     ******************************/
     
         $scripts = eaccelerator_cached_scripts();
-        $removed = eaccelerator_removed_scripts();
-    
-        // combine arrays
-        function removedmod ($val) {
-            $val['removed'] = true;
-            return $val;
-        }
-        $scripts = array_merge($scripts, array_map('removedmod', $removed));
     
         // search
         function scriptsearch ($val) {
@@ -420,7 +401,6 @@ switch ($sec) {
             case 2: $ordby = 'ts'; $ordbystr = false; break;
             case 3: $ordby = 'ttl'; $ordbystr = false; break;
             case 4: $ordby = 'size'; $ordbystr = false; break;
-            case 5: $ordby = 'reloads'; $ordbystr = false; break;
             case 6: $ordby = 'hits'; $ordbystr = false; break;
         }
         usort($scripts, 'arrsort');
@@ -469,7 +449,6 @@ switch ($sec) {
     <td class="h"><?php echo colheadstr('Added', 2)?></td>
     <td class="h"><?php echo colheadstr('TTL', 3)?></td>
     <td class="h"><?php echo colheadstr('Size', 4)?></td>
-    <td class="h"><?php echo colheadstr('Reloads', 5)?></td>
     <td class="h"><?php echo colheadstr('Hits', 6)?></td>
 </tr>
 <?php
@@ -499,7 +478,6 @@ switch ($sec) {
     <td class="fl"><small><?php echo date('Y-m-d H:i:s', $scripts[$i]['ts'])?></small></td>
     <td class="fr"><small><?php echo $ttl_col ?></small></td>
     <td class="fr"><small><?php echo format_size($scripts[$i]['size'])?></small></td>
-    <td class="fr"><small><?php echo $scripts[$i]['reloads']?> (<?php echo $scripts[$i]['usecount']?>)</small></td>
     <td class="fr"><small><?php echo number_format($scripts[$i]['hits'])?></small></td>
 </tr>
 <?php

@@ -143,9 +143,9 @@ static void clear_filecache(const char* dir)
 static inline void clean_file(char *file, time_t t) 
 {
 	int f;
-/*
+
 	if ((f = open(file, O_RDONLY | O_BINARY)) > 0) {
-		ea_file_header hdr;
+		ea_file_header_t hdr;
 		EACCELERATOR_FLOCK (f, LOCK_SH);
 		if (read(f, &hdr, sizeof(hdr)) != sizeof(hdr) 
 				|| strncmp (hdr.magic, EA_MAGIC,	8) != 0 
@@ -157,7 +157,7 @@ static inline void clean_file(char *file, time_t t)
 			EACCELERATOR_FLOCK (f, LOCK_UN);
 			close (f);
 		}
-	}*/
+	}
 }
 /* }}} */
 
@@ -351,7 +351,6 @@ PHP_FUNCTION (eaccelerator_info)
 	add_assoc_long(return_value, "memoryAvailable", available);
 	add_assoc_long(return_value, "memoryAllocated", ea_mm_instance->total - available);
 	add_assoc_long(return_value, "cachedScripts", script_cache->ht->elements);
-//	add_assoc_long(return_value, "removedScripts", ea_mm_instance->rem_cnt);
 
 	return;
 }
@@ -392,40 +391,6 @@ PHP_FUNCTION(eaccelerator_cached_scripts)
     array_init(return_value);
 
 	ea_cache_walk_ht(script_cache, format_cache_entry, (void *)return_value);
-}
-/* }}} */
-
-/* {{{ PHP_FUNCTION(eaccelerator_removed_scripts): Get a list of removed scripts */
-PHP_FUNCTION(eaccelerator_removed_scripts)
-{
-    ea_cache_entry *p;
-    zval *script;
-
-	if (ea_mm_instance == NULL) {
-		RETURN_NULL();
-	}
-
-    if (!isAdminAllowed(TSRMLS_C)) {
-        zend_error(E_WARNING, NOT_ADMIN_WARNING);
-        RETURN_NULL();
-    }
-
-    MAKE_STD_ZVAL(script);
-    array_init(return_value);
-/*
-    p = ea_mm_instance->removed;
-    while (p != NULL) {
-        array_init(script);
-        add_assoc_string(script, "file", p->realfilename, 1);
-        add_assoc_long(script, "mtime", p->mtime);
-        add_assoc_long(script, "size", p->size);
-        add_assoc_long(script, "reloads", p->nreloads);
-        add_assoc_long(script, "usecount", p->use_cnt);
-        add_assoc_long(script, "hits", p->nhits);
-        add_next_index_zval(return_value, script); 
-        p = p->next;
-    }*/
-    return;
 }
 /* }}} */
 

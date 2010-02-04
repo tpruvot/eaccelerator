@@ -1350,7 +1350,6 @@ function_entry eaccelerator_functions[] = {
   PHP_FE(eaccelerator_info, NULL)
   PHP_FE(eaccelerator_purge, NULL)
   PHP_FE(eaccelerator_cached_scripts, NULL)
-  PHP_FE(eaccelerator_removed_scripts, NULL)
   #ifdef WITH_EACCELERATOR_OPTIMIZER
     PHP_FE(eaccelerator_optimizer, NULL)
   #endif

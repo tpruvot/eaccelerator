@@ -141,6 +141,13 @@ void ea_cache_init();
  */
 void ea_cache_walk_ht(ea_cache_t *cache, void (* format_func) (ea_cache_entry *, void *data), void *data);
 
+/**
+ * Get an entry from the hashtable
+ */
+ea_cache_entry* ea_cache_hashtable_get(ea_hashtable_t *ht, const char *key, 
+		void *data, int (* compare_func) (ea_cache_entry *, void *));
+
+
 /* refactor todo list 
  * 
  * TODO reintroduce the nreloads variable

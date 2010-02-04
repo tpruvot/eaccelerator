@@ -514,7 +514,8 @@ static void ea_cache_hashtable_grow(ea_hashtable_t *ht)
     return;
 }
 
-static ea_cache_entry* ea_cache_hashtable_get(ea_hashtable_t *ht, const char *key, void *data, int (* compare_func) (ea_cache_entry *, void *))
+ea_cache_entry* ea_cache_hashtable_get(ea_hashtable_t *ht, const char *key, 
+		void *data, int (* compare_func) (ea_cache_entry *, void *))
 {
     unsigned int hv, slot;
     ea_cache_entry *entry, *p;
@@ -523,7 +524,8 @@ static ea_cache_entry* ea_cache_hashtable_get(ea_hashtable_t *ht, const char *ke
     hv = zend_get_hash_value((char *)key, key_len);
     slot = hv & (ht->size - 1);
 
-    DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Searching key '%s' with hv 0x%x in hashtable (slot %d): ", key, hv, slot));
+    DBG(ea_debug_printf, (EA_DEBUG_CACHE, 
+		"Searching key '%s' with hv 0x%x in hashtable (slot %d): ", key, hv, slot));
     
     entry = ht->entries[slot];
     p = NULL;
@@ -700,8 +702,8 @@ void ea_cache_walk_ht(ea_cache_t *cache,
 	int i;
 	ea_cache_entry *p;
 
-    EACCELERATOR_UNPROTECT(); // TODO: only read lock required
-    EACCELERATOR_LOCK_RW();
+	EACCELERATOR_UNPROTECT();
+	EACCELERATOR_LOCK_RD();
 
 	ea_debug_printf(EA_DEBUG_CACHE, "Walking ht with %d buckets and %d elements\n", 
 			cache->ht->size, cache->ht->elements);
@@ -718,7 +720,7 @@ void ea_cache_walk_ht(ea_cache_t *cache,
 		} 
 	}
 
-    EACCELERATOR_UNLOCK_RW();
+    EACCELERATOR_UNLOCK_RD();
     EACCELERATOR_PROTECT();
 }
 

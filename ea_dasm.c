@@ -28,10 +28,12 @@
 #include "ea_dasm.h"
 #include "eaccelerator.h"
 #include "opcodes.h"
+#include "ea_cache.h"
 #include "zend.h"
 
 #ifdef WITH_EACCELERATOR_DISASSEMBLER
 
+extern ea_cache_t *script_cache;
 extern eaccelerator_mm *ea_mm_instance;
 
 #define LOOKUP(arr, index, max, ptr) if (index < max) { ptr = arr[index]; } else { ptr = "UNDEFINED (todo)"; };
@@ -514,26 +516,18 @@ cont_failed:
 
 /* {{{ get_cache_entry: get the cache_entry for the given file */
 static ea_cache_entry *get_cache_entry(const char *file) {
-    unsigned int slot;
-    ea_cache_entry *p;
     ea_cache_entry *result = NULL;
     
     if (file != NULL) {
-        EACCELERATOR_UNPROTECT();
-        EACCELERATOR_LOCK_RD();
-        EACCELERATOR_PROTECT();
-        for (slot = 0; slot < EA_HASH_SIZE; slot++) {
-            p = ea_mm_instance->hash[slot];
-            while (p != NULL) {
-                if (strcmp(p->realfilename, file) == 0) {
-                    result = p;
-                }
-                p = p->next;
-            }
-        }
-        EACCELERATOR_UNPROTECT();
-        EACCELERATOR_UNLOCK_RD();
-        EACCELERATOR_PROTECT();
+		EACCELERATOR_UNPROTECT();
+		EACCELERATOR_LOCK_RW();
+		EACCELERATOR_PROTECT();
+
+		result = ea_cache_hashtable_get(script_cache->ht, file, NULL, NULL);
+
+		EACCELERATOR_UNPROTECT();
+		EACCELERATOR_UNLOCK_RW();
+		EACCELERATOR_PROTECT();
     }
     return result;
 }
@@ -614,6 +608,19 @@ PHP_FUNCTION(eaccelerator_dasm_file)
             fc = fc->next;
         }
     }
+
+	// release this entry again
+	EACCELERATOR_UNPROTECT();
+	EACCELERATOR_LOCK_RW();
+
+	p->ref_cnt--;
+	if (p->ref_cnt <= 0) {
+		EA_FREE_CACHE_ENTRY_NO_LOCK(p);
+	}
+
+	EACCELERATOR_UNLOCK_RW();
+	EACCELERATOR_PROTECT();
+
     add_assoc_zval(return_value, "classes", classes); 
 }
 /* }}} */
