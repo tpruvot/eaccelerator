@@ -275,37 +275,19 @@ typedef struct _ea_fc_entry {
 	char htabkey[1];			/* must be last element */
 } ea_fc_entry;
 
+typedef enum ea_alloc_place {
+    ea_shared_mem,
+    ea_emalloc,
+    ea_malloc
+} ea_alloc_place;
 
-/*
- * A ea_cache_entry is a bucket for one PHP script file.
- * User functions and classes defined in the file go into
- * the list of ea_fc_entry.
- */
-typedef struct _ea_cache_entry {
-	struct _ea_cache_entry *next;
-	unsigned int hv;			/* hash value                            */
-	off_t filesize;				/* file size */
-	time_t mtime;				/* file last modification time           */
-	time_t ttl;				/* expiration time (updated on each hit) */
-	time_t ts;				/* timestamp of cache entry              */
-	unsigned int size;			/* entry size (bytes)                    */
-	unsigned int nhits;			/* hits count                            */
-	unsigned int nreloads;			/* count of reloads                      */
-	int use_cnt;			/* how many processes uses the entry     */
-	ea_op_array *op_array;	/* script's global scope code        */
-	ea_fc_entry *f_head;		/* list of nested functions          */
-	ea_fc_entry *c_head;		/* list of nested classes            */
-	zend_bool removed;			/* the entry is scheduled to remove  */
-	char realfilename[1];		/* real file name (must be last el.) */
-} ea_cache_entry;
-
-/*
- * Linked list of ea_cache_entry which are used by process/thread
- */
-typedef struct _ea_used_entry {
-	struct _ea_used_entry *next;
-	ea_cache_entry *entry;
-} ea_used_entry;
+#define EA_FREE_CACHE_ENTRY_NO_LOCK(p) { if (p->alloc == ea_shared_mem)\
+    eaccelerator_free_nolock(p); else if (p->alloc == ea_emalloc) efree(p);\
+    else if (p->alloc == ea_malloc) free(p); }
+                
+#define EA_FREE_CACHE_ENTRY(p) { EACCELERATOR_LOCK_RW();\
+    EA_FREE_CACHE_ENTRY_NO_LOCK(p);\
+    EACCELERATOR_UNLOCK_RW(); }
 
 /*
  * Linked list of locks
@@ -319,34 +301,14 @@ typedef struct _ea_lock_entry {
 	char key[1];
 } ea_lock_entry;
 
-typedef struct _ea_file_header {
-	char magic[8];				/* "EACCELERATOR" */
-	int eaccelerator_version[2];
-	int zend_version[2];
-	int php_version[2];
-	int size;
-	time_t mtime;
-	time_t ts;
-	unsigned int crc32;
-} ea_file_header;
-
-int check_header(ea_file_header *hdr);
-void init_header(ea_file_header *hdr);
-
 typedef struct {
 	MM *mm;
 	pid_t owner;
 	size_t total;
-	unsigned int hash_cnt;
 	zend_bool enabled;
 	zend_bool optimizer_enabled;
-	zend_bool check_mtime_enabled;
-	unsigned int rem_cnt;
 	time_t last_prune;
-	ea_cache_entry *removed;
 	ea_lock_entry *locks;
-
-	ea_cache_entry *hash[EA_HASH_SIZE];
 } eaccelerator_mm;
 
 /*
@@ -398,9 +360,6 @@ int eaccelerator_lock (const char *key, int key_len TSRMLS_DC);
 int eaccelerator_unlock (const char *key, int key_len TSRMLS_DC);
 
 void *eaccelerator_malloc2 (size_t size TSRMLS_DC);
-
-unsigned int eaccelerator_crc32 (const char *p, size_t n);
-int eaccelerator_md5 (char *s, const char *prefix, const char *key TSRMLS_DC); 
 
 #  ifdef WITH_EACCELERATOR_OPTIMIZER
 void eaccelerator_optimize (zend_op_array * op_array);

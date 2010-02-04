@@ -22,18 +22,18 @@
    |                                                                      |
    | A copy is availble at http://www.gnu.org/copyleft/gpl.txt            |
    +----------------------------------------------------------------------+
-   $Id$
+   $Id: $
 */
 
-#ifndef EA_STORE_H
-#define EA_STORE_H
+#ifndef EA_CRC32_H
+#define EA_CRC32_H
 
-#include "ea_cache.h"
+#include <stdlib.h>
 
-size_t calc_zval(zval *z TSRMLS_DC);
-size_t calc_size(char *key, zend_op_array *op_array, Bucket *f, Bucket *c TSRMLS_DC);
+unsigned int ea_crc32(const void *s, size_t len);
 
-void store_zval(char **p, zval *z TSRMLS_DC);
-void eaccelerator_store_int(ea_cache_entry *entry, char *key, int len, zend_op_array *op_array, Bucket *f, Bucket *c TSRMLS_DC);
+#endif /*EA_CRC32_H*/
 
-#endif /* EA_STORE_H */
+/*
+ * vim: noet tabstop=2 softtabstop=2 shiftwidth=2
+ */

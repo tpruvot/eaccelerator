@@ -41,6 +41,7 @@
 #include "ea_restore.h"
 #include "ea_info.h"
 #include "ea_dasm.h"
+#include "ea_cache.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -67,7 +68,6 @@
 #include "main/fopen_wrappers.h"
 #include "ext/standard/info.h"
 #include "ext/standard/php_incomplete_class.h"
-#include "ext/standard/md5.h"
 
 #include "SAPI.h"
 
@@ -92,9 +92,7 @@ zend_extension* ZendOptimizer = NULL;
 static HashTable ea_global_function_table;
 static HashTable ea_global_class_table;
 
-int binary_eaccelerator_version[2];
-int binary_php_version[2];
-int binary_zend_version[2];
+ea_cache_t *script_cache = NULL;
 
 /* pointer to the properties_info hashtable destructor */
 extern dtor_func_t properties_info_dtor;
@@ -111,104 +109,14 @@ PHPAPI void php_stripslashes(char *str, int *len TSRMLS_DC);
 
 ZEND_DLEXPORT zend_op_array* eaccelerator_compile_file(zend_file_handle *file_handle, int type TSRMLS_DC);
 
-/******************************************************************************/
-/* hash mm functions                                                          */
-/******************************************************************************/
+static int is_valid_script(ea_cache_entry *script, void *data)
+{
+	if (((struct stat *)data)->st_mtime != script->mtime || 
+			((struct stat *)data)->st_size != script->filesize) {
+		return 0;
+	}
 
-/* Find a script entry with the given hash key */
-static ea_cache_entry* hash_find_mm(const char  *key,
-                                    struct stat *buf,
-                                    int         *nreloads,
-                                    time_t      ttl TSRMLS_DC) {
-  unsigned int hv, slot;
-  ea_cache_entry *p, *q;
-
-  hv = zend_get_hash_value((char *)key, strlen(key));
-  slot = hv & EA_HASH_MAX;
-
-  EACCELERATOR_LOCK_RW();
-  q = NULL;
-  p = ea_mm_instance->hash[slot];
-  while (p != NULL) {
-    if ((p->hv == hv) && (strcmp(p->realfilename, key) == 0)) {
-      if (EAG(check_mtime_enabled) && ea_mm_instance->check_mtime_enabled &&
-          (buf->st_mtime != p->mtime || buf->st_size != p->filesize)) {
-        /* key is invalid. Remove it. */
-        *nreloads = p->nreloads+1;
-        if (q == NULL) {
-          ea_mm_instance->hash[slot] = p->next;
-        } else {
-          q->next = p->next;
-        }
-        ea_mm_instance->hash_cnt--;
-        if (p->use_cnt > 0) {
-          /* key is used by other process/thread. Schedule it for removal */
-          p->removed = 1;
-          p->next = ea_mm_instance->removed;
-          ea_mm_instance->removed = p;
-          ea_mm_instance->rem_cnt++;
-          EACCELERATOR_UNLOCK_RW();
-          return NULL;
-        } else {
-          /* key is unused. Remove it. */
-          eaccelerator_free_nolock(p);
-          EACCELERATOR_UNLOCK_RW();
-          return NULL;
-        }
-      } else {
-        /* key is valid */
-        p->nhits++;
-        p->use_cnt++;
-        p->ttl = ttl;
-        EACCELERATOR_UNLOCK_RW();
-        return p;
-      }
-    }
-    q = p;
-    p = p->next;
-  }
-  EACCELERATOR_UNLOCK_RW();
-  return NULL;
-}
-
-/* Add a new entry to the hashtable */
-static void hash_add_mm(ea_cache_entry *x) {
-  ea_cache_entry *p,*q;
-  unsigned int slot;
-  x->hv = zend_get_hash_value(x->realfilename, strlen(x->realfilename));
-  slot = x->hv & EA_HASH_MAX;
-
-  EACCELERATOR_LOCK_RW();
-  x->next = ea_mm_instance->hash[slot];
-  ea_mm_instance->hash[slot] = x;
-  ea_mm_instance->hash_cnt++;
-  q = x;
-  p = x->next;
-  while (p != NULL) {
-    if ((p->hv == x->hv) &&
-        (strcmp(p->realfilename, x->realfilename) == 0)) {
-      q->next = p->next;
-      ea_mm_instance->hash_cnt--;
-      ea_mm_instance->hash[slot]->nreloads += p->nreloads;
-      if (p->use_cnt > 0) {
-        /* key is used by other process/thread. Shedule it to remove */
-        p->removed = 1;
-        p->next = ea_mm_instance->removed;
-        ea_mm_instance->removed = p;
-        ea_mm_instance->rem_cnt++;
-        EACCELERATOR_UNLOCK_RW();
-        return;
-      } else {
-        /* key is unused. Remove it. */
-        eaccelerator_free_nolock(p);
-        EACCELERATOR_UNLOCK_RW();
-        return;
-      }
-    }
-    q = p;
-    p = p->next;
-  }
-  EACCELERATOR_UNLOCK_RW();
+	return 1;   
 }
 
 /* Initialise the shared memory */
@@ -223,43 +131,51 @@ static int init_mm(TSRMLS_D) {
 #else
     snprintf(mm_path, MAXPATHLEN, "%s.%s%d", EACCELERATOR_MM_FILE, sapi_module.name, owner);
 #endif
-/*  snprintf(mm_path, MAXPATHLEN, "%s.%s%d", EACCELERATOR_MM_FILE, sapi_module.name, geteuid());*/
-  if ((ea_mm_instance = (eaccelerator_mm*)mm_attach(ea_shm_size*1024*1024, mm_path)) != NULL) {
+  
+	if ((ea_mm_instance = (eaccelerator_mm*)mm_attach(ea_shm_size*1024*1024, mm_path)) != NULL) {
 #ifdef ZTS
     ea_mutex = tsrm_mutex_alloc();
 #endif
     return SUCCESS;
   }
   mm = mm_create(ea_shm_size*1024*1024, mm_path);
+
   if (!mm) {
     return FAILURE;
   }
+
 #ifdef ZEND_WIN32
   DBG(ea_debug_printf, (EA_DEBUG, "init_mm [%d]\n", owner));
 #else
   DBG(ea_debug_printf, (EA_DEBUG, "init_mm [%d,%d]\n", owner, getppid()));
 #endif
+
 #ifdef ZTS
   ea_mutex = tsrm_mutex_alloc();
 #endif
+	
   total = mm_available(mm);
   ea_mm_instance = mm_malloc_lock(mm, sizeof(*ea_mm_instance));
   if (!ea_mm_instance) {
     return FAILURE;
   }
+
   mm_set_attach(mm, ea_mm_instance);
   memset(ea_mm_instance, 0, sizeof(*ea_mm_instance));
   ea_mm_instance->owner = owner;
-  ea_mm_instance->mm    = mm;
+  ea_mm_instance->mm = mm;
   ea_mm_instance->total = total;
-  ea_mm_instance->hash_cnt = 0;
-  ea_mm_instance->rem_cnt  = 0;
   ea_mm_instance->enabled = 1;
   ea_mm_instance->optimizer_enabled = 1;
-  ea_mm_instance->check_mtime_enabled = 1;
-  ea_mm_instance->removed = NULL;
   ea_mm_instance->locks = NULL;
   ea_mm_instance->last_prune = time(NULL);	/* this time() call is harmless since this is init phase */
+
+	script_cache = ea_cache_create(EA_HASH_SIZE);
+	if (script_cache == NULL) {
+		return FAILURE; 
+	}
+  script_cache->compare_func = is_valid_script;
+
   EACCELERATOR_PROTECT();
   return SUCCESS;
 }
@@ -289,412 +205,17 @@ static void shutdown_mm(TSRMLS_D) {
   }
 }
 
-void encode_version(const char *str, int *version, int *extra)
-{
-    unsigned int a = 0;
-    unsigned int b = 0;
-    unsigned int c = 0;
-    unsigned int d = 0;
-    size_t len;
-    char s[255];
-    char buf[255];
-
-    len = strlen(str);
-    memcpy(buf, str, (len > 255) ? 255 : len);
-    buf[254] = '\0';
-
-    memset(s, 0, 255);
-    sscanf(str, "%u.%u.%u%s", &a, &b, &c, s);
-
-    if (s[0] == '.') {
-        sscanf(s, ".%u-%s", &d, buf);
-    } else if (s[0] == '-') {
-        memcpy(buf, &s[1], 254);
-    } else {
-        memcpy(buf, s, 255);
-    }
-
-    *version = ((a & 0xff) << 24) | ((b & 0xff) << 16) | ((c & 0xff) << 8) | (d & 0xff);
-
-    if (buf[0] == 0) {
-        a = 0;
-        b = 0;
-    } else if (strncasecmp(buf, "rev", 3) == 0) {
-        a = 1;
-        sscanf(buf, "rev%u", &b);
-    } else if (strncasecmp(buf, "rc", 2) == 0) {
-        a = 2;
-        sscanf(buf, "rc%u", &b);
-    } else if (strncasecmp(buf, "beta", 4) == 0) {
-        a = 3;
-        sscanf(buf, "beta%u", &b);
-    } else {
-        a = 0xf;
-        // just encode the first 4 bytes
-        b = ((buf[0] & 0x7f) << 21) | ((buf[1] & 0x7f) << 14) | ((buf[2] & 0x7f) << 7) | (buf[3] & 0x7f);
-    }
-
-    *extra = ((a & 0xf) << 28) | (0x0fffffff & b);
-}
-
-#ifdef DEBUG
-static void decode_version(int version, int extra, char *str, size_t len)
-{
-    int number;
-
-    if ((version & 0xff) == 0) {
-        number = snprintf(str, len, "%u.%u.%u", (version >> 24), ((version >> 16) & 0xff), ((version >> 8) & 0xff));
-    } else {
-        number = snprintf(str, len, "%u.%u.%u.%u", (version >> 24), ((version >> 16) & 0xff), ((version >> 8) & 0xff), (version & 0xff));
-    }
-
-    if (extra != 0) {
-        unsigned int type = ((extra >> 28) & 0xf);
-        extra = (extra & 0x0fffffff);
-        switch (type) {
-            case 1:
-                snprintf(&str[number], len, "-rev%u", extra);
-                break;
-            case 2:
-                snprintf(&str[number], len, "-rc%u", extra);
-                break;
-            case 3:
-                snprintf(&str[number], len, "-beta%u", extra);
-                break;
-            case 15:
-                if ((int)len >= number + 5) {
-                    str[number] = '-';
-                    str[number + 1] = (extra >> 21) & 0x7f;
-                    str[number + 2] = (extra >> 14) & 0x7f;
-                    str[number + 3] = (extra >> 7) & 0x7f;
-                    str[number + 4] = extra & 0x7f;
-                    str[number + 5] = '\0';
-                }
-                break;
-            default:
-                break;
-        }
-    }
-}
-#endif
-
-static char num2hex[] = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
-
-/* Function to create a hash key when filenames are used */
-int eaccelerator_md5(char* s, const char* prefix, const char* key TSRMLS_DC) {
-  char md5str[33];
-  PHP_MD5_CTX context;
-  unsigned char digest[16];
-  int i;
-  int n;
-
-  md5str[0] = '\0';
-  PHP_MD5Init(&context);
-  PHP_MD5Update(&context, (unsigned char*)key, strlen(key));
-  PHP_MD5Final(digest, &context);
-  make_digest(md5str, digest);
-  snprintf(s, MAXPATHLEN-1, "%s/", EAG(cache_dir));
-  n = strlen(s);
-  for (i = 0; i < EACCELERATOR_HASH_LEVEL && n < MAXPATHLEN - 1; i++) {
-    s[n++] = md5str[i];
-    s[n++] = '/';
-  }
-  s[n] = 0;
-  snprintf(&s[n], MAXPATHLEN-1-n, "%s%s", prefix, md5str);
-  return 1;
-}
-
-/* Remove expired keys, content and scripts from the memory cache */
-void eaccelerator_prune(time_t t) {
-  unsigned int i;
-
-  EACCELERATOR_LOCK_RW();
-  ea_mm_instance->last_prune = t;
-  for (i = 0; i < EA_HASH_SIZE; i++) {
-    ea_cache_entry **p = &ea_mm_instance->hash[i];
-    while (*p != NULL) {
-      struct stat buf;
-      if (((*p)->ttl != 0 && (*p)->ttl < t && (*p)->use_cnt <= 0) ||
-          stat((*p)->realfilename,&buf) != 0 ||
-          (*p)->mtime != buf.st_mtime ||
-          (*p)->filesize != buf.st_size) {
-        ea_cache_entry *r = *p;
-        *p = (*p)->next;
-        ea_mm_instance->hash_cnt--;
-        eaccelerator_free_nolock(r);
-      } else {
-        p = &(*p)->next;
-      }
-    }
-  }
-  EACCELERATOR_UNLOCK_RW();
-}
-
 /* Allocate a new cache chunk */
 void* eaccelerator_malloc2(size_t size TSRMLS_DC) {
   void *p = NULL;
 
   if (ea_shm_prune_period > 0) {
     if (EAG(req_start) - ea_mm_instance->last_prune > ea_shm_prune_period) {
-      eaccelerator_prune(EAG(req_start));
+//      eaccelerator_prune(EAG(req_start));
       p = eaccelerator_malloc(size);
     }
   }
   return p;
-}
-
-#define EACCELERATOR_CRC32(crc, ch)   (crc = (crc >> 8) ^ crc32tab[(crc ^ (ch)) & 0xff])
-
-static const unsigned int crc32tab[256] = {
-  0x00000000, 0x77073096, 0xee0e612c, 0x990951ba,
-  0x076dc419, 0x706af48f, 0xe963a535, 0x9e6495a3,
-  0x0edb8832, 0x79dcb8a4, 0xe0d5e91e, 0x97d2d988,
-  0x09b64c2b, 0x7eb17cbd, 0xe7b82d07, 0x90bf1d91,
-  0x1db71064, 0x6ab020f2, 0xf3b97148, 0x84be41de,
-  0x1adad47d, 0x6ddde4eb, 0xf4d4b551, 0x83d385c7,
-  0x136c9856, 0x646ba8c0, 0xfd62f97a, 0x8a65c9ec,
-  0x14015c4f, 0x63066cd9, 0xfa0f3d63, 0x8d080df5,
-  0x3b6e20c8, 0x4c69105e, 0xd56041e4, 0xa2677172,
-  0x3c03e4d1, 0x4b04d447, 0xd20d85fd, 0xa50ab56b,
-  0x35b5a8fa, 0x42b2986c, 0xdbbbc9d6, 0xacbcf940,
-  0x32d86ce3, 0x45df5c75, 0xdcd60dcf, 0xabd13d59,
-  0x26d930ac, 0x51de003a, 0xc8d75180, 0xbfd06116,
-  0x21b4f4b5, 0x56b3c423, 0xcfba9599, 0xb8bda50f,
-  0x2802b89e, 0x5f058808, 0xc60cd9b2, 0xb10be924,
-  0x2f6f7c87, 0x58684c11, 0xc1611dab, 0xb6662d3d,
-  0x76dc4190, 0x01db7106, 0x98d220bc, 0xefd5102a,
-  0x71b18589, 0x06b6b51f, 0x9fbfe4a5, 0xe8b8d433,
-  0x7807c9a2, 0x0f00f934, 0x9609a88e, 0xe10e9818,
-  0x7f6a0dbb, 0x086d3d2d, 0x91646c97, 0xe6635c01,
-  0x6b6b51f4, 0x1c6c6162, 0x856530d8, 0xf262004e,
-  0x6c0695ed, 0x1b01a57b, 0x8208f4c1, 0xf50fc457,
-  0x65b0d9c6, 0x12b7e950, 0x8bbeb8ea, 0xfcb9887c,
-  0x62dd1ddf, 0x15da2d49, 0x8cd37cf3, 0xfbd44c65,
-  0x4db26158, 0x3ab551ce, 0xa3bc0074, 0xd4bb30e2,
-  0x4adfa541, 0x3dd895d7, 0xa4d1c46d, 0xd3d6f4fb,
-  0x4369e96a, 0x346ed9fc, 0xad678846, 0xda60b8d0,
-  0x44042d73, 0x33031de5, 0xaa0a4c5f, 0xdd0d7cc9,
-  0x5005713c, 0x270241aa, 0xbe0b1010, 0xc90c2086,
-  0x5768b525, 0x206f85b3, 0xb966d409, 0xce61e49f,
-  0x5edef90e, 0x29d9c998, 0xb0d09822, 0xc7d7a8b4,
-  0x59b33d17, 0x2eb40d81, 0xb7bd5c3b, 0xc0ba6cad,
-  0xedb88320, 0x9abfb3b6, 0x03b6e20c, 0x74b1d29a,
-  0xead54739, 0x9dd277af, 0x04db2615, 0x73dc1683,
-  0xe3630b12, 0x94643b84, 0x0d6d6a3e, 0x7a6a5aa8,
-  0xe40ecf0b, 0x9309ff9d, 0x0a00ae27, 0x7d079eb1,
-  0xf00f9344, 0x8708a3d2, 0x1e01f268, 0x6906c2fe,
-  0xf762575d, 0x806567cb, 0x196c3671, 0x6e6b06e7,
-  0xfed41b76, 0x89d32be0, 0x10da7a5a, 0x67dd4acc,
-  0xf9b9df6f, 0x8ebeeff9, 0x17b7be43, 0x60b08ed5,
-  0xd6d6a3e8, 0xa1d1937e, 0x38d8c2c4, 0x4fdff252,
-  0xd1bb67f1, 0xa6bc5767, 0x3fb506dd, 0x48b2364b,
-  0xd80d2bda, 0xaf0a1b4c, 0x36034af6, 0x41047a60,
-  0xdf60efc3, 0xa867df55, 0x316e8eef, 0x4669be79,
-  0xcb61b38c, 0xbc66831a, 0x256fd2a0, 0x5268e236,
-  0xcc0c7795, 0xbb0b4703, 0x220216b9, 0x5505262f,
-  0xc5ba3bbe, 0xb2bd0b28, 0x2bb45a92, 0x5cb36a04,
-  0xc2d7ffa7, 0xb5d0cf31, 0x2cd99e8b, 0x5bdeae1d,
-  0x9b64c2b0, 0xec63f226, 0x756aa39c, 0x026d930a,
-  0x9c0906a9, 0xeb0e363f, 0x72076785, 0x05005713,
-  0x95bf4a82, 0xe2b87a14, 0x7bb12bae, 0x0cb61b38,
-  0x92d28e9b, 0xe5d5be0d, 0x7cdcefb7, 0x0bdbdf21,
-  0x86d3d2d4, 0xf1d4e242, 0x68ddb3f8, 0x1fda836e,
-  0x81be16cd, 0xf6b9265b, 0x6fb077e1, 0x18b74777,
-  0x88085ae6, 0xff0f6a70, 0x66063bca, 0x11010b5c,
-  0x8f659eff, 0xf862ae69, 0x616bffd3, 0x166ccf45,
-  0xa00ae278, 0xd70dd2ee, 0x4e048354, 0x3903b3c2,
-  0xa7672661, 0xd06016f7, 0x4969474d, 0x3e6e77db,
-  0xaed16a4a, 0xd9d65adc, 0x40df0b66, 0x37d83bf0,
-  0xa9bcae53, 0xdebb9ec5, 0x47b2cf7f, 0x30b5ffe9,
-  0xbdbdf21c, 0xcabac28a, 0x53b39330, 0x24b4a3a6,
-  0xbad03605, 0xcdd70693, 0x54de5729, 0x23d967bf,
-  0xb3667a2e, 0xc4614ab8, 0x5d681b02, 0x2a6f2b94,
-  0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d,
-};
-
-unsigned int eaccelerator_crc32(const char *p, size_t n) {
-  unsigned int crc = ~0;
-  for (; n--; ++p) {
-    EACCELERATOR_CRC32(crc, *p);
-  }
-  return ~crc;
-}
-
-/******************************************************************************/
-/* Cache file functions.														*/
-/******************************************************************************/
-
-/* A function to check if the header of a cache file valid is.
- */
-inline int check_header(ea_file_header *hdr)
-{
-#ifdef DEBUG
-  char current[255];
-  char cache[255];
-#endif
-	
-  if (strncmp(hdr->magic, EA_MAGIC, 8) != 0) {
-#ifdef DEBUG
-    ea_debug_printf(EA_DEBUG, "Magic header mismatch.");
-#endif
-	return 0;	
-  }
-  if (hdr->eaccelerator_version[0] != binary_eaccelerator_version[0] 
-      || hdr->eaccelerator_version[1] != binary_eaccelerator_version[1]) {
-#ifdef DEBUG
-    decode_version(hdr->eaccelerator_version[0], hdr->eaccelerator_version[1], cache, 255);
-    decode_version(binary_eaccelerator_version[0], binary_eaccelerator_version[1], current, 255);
-    ea_debug_printf(EA_DEBUG, "eAccelerator version mismatch, cache file %s and current version %s\n", cache, current);
-#endif
-    return 0;
-  }
-  if (hdr->zend_version[0] != binary_zend_version[0] 
-      || hdr->zend_version[1] != binary_zend_version[1]) {
-#ifdef DEBUG
-    decode_version(hdr->zend_version[0], hdr->zend_version[1], cache, 255);
-    decode_version(binary_zend_version[0], binary_zend_version[1], current, 255);
-    ea_debug_printf(EA_DEBUG, "Zend version mismatch, cache file %s and current version %s\n", cache, current);
-#endif
-    return 0;
-  }
-  if (hdr->php_version[0] != binary_php_version[0] 
-      || hdr->php_version[1] != binary_php_version[1]) {
-#ifdef DEBUG
-    decode_version(hdr->php_version[0], hdr->php_version[1], cache, 255);
-    decode_version(binary_php_version[0], binary_php_version[1], current, 255);
-    ea_debug_printf(EA_DEBUG, "PHP version mismatch, cache file %s and current version %s\n", cache, current);
-#endif
-    return 0;
-  }
-  return 1;
-}
-
-/* A function to create the header for a cache file.
- */
-inline void init_header(ea_file_header *hdr)
-{
-  strncpy(hdr->magic, EA_MAGIC, 8);
-  hdr->eaccelerator_version[0] = binary_eaccelerator_version[0];
-  hdr->eaccelerator_version[1] = binary_eaccelerator_version[1];
-  hdr->zend_version[0] = binary_zend_version[0];
-  hdr->zend_version[1] = binary_zend_version[1];
-  hdr->php_version[0] = binary_php_version[0];	
-  hdr->php_version[1] = binary_php_version[1];
-}
-/* Retrieve a cache entry from the cache directory */
-static ea_cache_entry* hash_find_file(const char  *key, struct stat *buf TSRMLS_DC) {
-  int f;
-  char s[MAXPATHLEN];
-  ea_file_header hdr;
-  ea_cache_entry *p = NULL;
-  int use_shm = 1;
-
-  if (!eaccelerator_md5(s, "/eaccelerator-", key TSRMLS_CC)) {
-    return NULL;
-  }
-
-  if ((f = open(s, O_RDONLY | O_BINARY)) > 0) {
-    EACCELERATOR_FLOCK(f, LOCK_SH);
-    if (read(f, &hdr, sizeof(hdr)) != sizeof(hdr)) {
-      EACCELERATOR_FLOCK(f, LOCK_UN);
-      close(f);
-      return NULL;
-    }
-    if (!check_header(&hdr)) {
-      EACCELERATOR_FLOCK(f, LOCK_UN);
-      close(f);
-      unlink(s);
-      return NULL;
-    }
-    p = eaccelerator_malloc(hdr.size);
-    if (p == NULL) {
-      p = eaccelerator_malloc2(hdr.size TSRMLS_CC);
-    }
-    if (p == NULL) {
-      p = emalloc(hdr.size);
-      use_shm = 0;
-    }
-    if (p == NULL) {
-      EACCELERATOR_FLOCK(f, LOCK_UN);
-      close(f);
-      return NULL;
-    }
-    if (read(f, p, hdr.size) != hdr.size ||
-        p->size != hdr.size ||
-        hdr.crc32 != eaccelerator_crc32((const char*)p,p->size)) {
-      EACCELERATOR_FLOCK(f, LOCK_UN);
-      close(f);
-      unlink(s);
-      if (use_shm) eaccelerator_free(p); else efree(p);
-			DBG(ea_debug_printf, (EA_DEBUG, "cache file is corrupted\n"));
-      return NULL;
-    }
-    EACCELERATOR_FLOCK(f, LOCK_UN);
-    close(f);
-    if (strcmp(key,p->realfilename) != 0) {
-      if (use_shm) eaccelerator_free(p); else efree(p);
-      return NULL;
-    }
-    if ((EAG(check_mtime_enabled) && ea_mm_instance->check_mtime_enabled &&
-        (buf->st_mtime != p->mtime || buf->st_size != p->filesize))
-       ) {
-      /* key is invalid. Remove it. */
-      if (use_shm) eaccelerator_free(p); else efree(p);
-      unlink(s);
-      return NULL;
-    }
-    eaccelerator_fixup(p TSRMLS_CC);
-    if (use_shm) {
-      p->nhits    = 1;
-      p->nreloads = 1;
-      p->use_cnt  = 1;
-      p->removed  = 0;
-      if (ea_shm_ttl > 0) {
-        p->ttl = EAG(req_start) + ea_shm_ttl;
-      } else {
-        p->ttl = 0;
-      }
-      p->ts       = hdr.ts;	/* get cached item creation timestamp from cache file */
-      hash_add_mm(p);
-    } else {
-      p->use_cnt  = 0;
-      p->removed  = 1;
-    }
-    mm_check_mem(p); 
-    return p;
-  }
-  return NULL;
-}
-
-/* Add a cache entry to the cache directory */
-static int hash_add_file(ea_cache_entry *p TSRMLS_DC) {
-  int f;
-  int ret = 0;
-  char s[MAXPATHLEN];
-  ea_file_header hdr;
-
-  if (!eaccelerator_md5(s, "/eaccelerator-", p->realfilename TSRMLS_CC)) {
-    return 0;
-  }
-
-  unlink(s);
-  f = open(s, O_CREAT | O_WRONLY | O_EXCL | O_BINARY, S_IRUSR | S_IWUSR);
-  if (f > 0) {
-    EACCELERATOR_FLOCK(f, LOCK_EX);
-    init_header(&hdr);
-    hdr.size  = p->size;
-    hdr.mtime = p->mtime;
-    hdr.ts    = p->ts;
-    p->next = p;
-    hdr.crc32 = eaccelerator_crc32((const char*)p,p->size);
-    ret = (write(f, &hdr, sizeof(hdr)) == sizeof(hdr));
-    if (ret) ret = (write(f, p, p->size) == p->size);
-    EACCELERATOR_FLOCK(f, LOCK_UN);
-    close(f);
-  } else {
-    ea_debug_log("EACCELERATOR: Open for write failed for \"%s\": %s\n", s, strerror(errno));
-  }
-  return ret;
 }
 
 /* called after succesful compilation, from eaccelerator_compile file */
@@ -702,109 +223,94 @@ static int hash_add_file(ea_cache_entry *p TSRMLS_DC) {
 static int eaccelerator_store(char* key, struct stat *buf, int nreloads,
                          zend_op_array* op_array,
                          Bucket* f, Bucket *c TSRMLS_DC) {
-  ea_cache_entry *p;
-  int len = strlen(key);
-  int use_shm = 1;
-  int ret = 0;
-  int size = 0;
-  void *data = NULL;
+	ea_cache_entry *script;
 
-  zend_try {
-    size = calc_size(key, op_array, f, c TSRMLS_CC);
-  } zend_catch {
-    size =  0;
-  } zend_end_try();
-  if (size == 0) {
-    return 0;
-  }
+	int len = strlen(key);
+	int use_shm = 1;
+	int size = 0, ret = 0;
 
-  DBG(ea_debug_pad, (EA_DEBUG TSRMLS_CC));
-  DBG(ea_debug_printf, (EA_DEBUG, "[%d] eaccelerator_store:  returned %d, mm=%x\n", getpid(), size, ea_mm_instance->mm));
-  
-  EACCELERATOR_UNPROTECT();
-  EAG(mem) = eaccelerator_malloc(size);
-  if (EAG(mem) == NULL) {
-    EAG(mem) = eaccelerator_malloc2(size TSRMLS_CC);
-  }
-  if (!EAG(mem) && !ea_scripts_shm_only) {
-    EACCELERATOR_PROTECT();
-    EAG(mem) = emalloc(size);
-    use_shm = 0;
-  }
-  if (EAG(mem)) {
-    data = EAG(mem);
-    memset(EAG(mem), 0, size);
-		p = (ea_cache_entry *)EAG(mem);
-    eaccelerator_store_int(p, key, len, op_array, f, c TSRMLS_CC);
-    p->mtime    = buf->st_mtime;
-    p->ts       = EAG(req_start);
-    p->filesize = buf->st_size;
-    p->size     = size;
-    p->nreloads = nreloads;
-    if (use_shm) {
-      if (ea_shm_ttl > 0) {
-        p->ttl = EAG(req_start) + ea_shm_ttl;
-      } else {
-        p->ttl = 0;
-      }
-      if (!ea_scripts_shm_only) {
-        hash_add_file(p TSRMLS_CC);
-      }
-      hash_add_mm(p);
-      EACCELERATOR_PROTECT();
-      ret = 1;
-      mm_check_mem(data);
-    } else {
-      ret =  hash_add_file(p TSRMLS_CC);
-      efree(p);
-    }
-  }
-  return ret;
+	// calculate the script size
+	zend_try {
+		size = calc_size(key, op_array, f, c TSRMLS_CC);
+	} zend_catch {
+		size =  0;
+	} zend_end_try();
+
+	if (size == 0) {
+		return 0;
+	}
+
+	DBG(ea_debug_pad, (EA_DEBUG TSRMLS_CC));
+	DBG(ea_debug_printf, (EA_DEBUG, "[%d] eaccelerator_store:  returned %d, mm=%x\n", getpid(), size, ea_mm_instance->mm));
+
+	EACCELERATOR_UNPROTECT();
+	EAG(mem) = eaccelerator_malloc(size);
+	if (EAG(mem) == NULL) {
+		EAG(mem) = eaccelerator_malloc2(size TSRMLS_CC);
+	}
+	if (!EAG(mem) && !ea_scripts_shm_only) {
+		EACCELERATOR_PROTECT();
+		EAG(mem) = emalloc(size);
+		use_shm = 0;
+	}
+
+	if (EAG(mem)) {
+		memset(EAG(mem), 0, size);
+		eaccelerator_store_int(script, key, len, op_array, f, c TSRMLS_CC);
+		script->mtime = buf->st_mtime;
+		script->filesize = buf->st_size;
+		script->size = size;
+		script->alloc = (use_shm == 1) ? ea_shared_mem : ea_emalloc;
+
+		EACCELERATOR_PROTECT();
+
+		ret = ea_cache_put(script_cache, script);
+
+		if (script->alloc == ea_emalloc) {
+			efree(script);   
+		}
+	}
+	return ret;
 }
 
 /* Try to restore a file from the cache. If the file isn't found in memory, the 
    the disk cache is checked */
 static zend_op_array* eaccelerator_restore(char *realname, struct stat *buf,
                                       int *nreloads, time_t compile_time TSRMLS_DC) {
-  ea_cache_entry *p;
-  zend_op_array *op_array = NULL;
+	ea_cache_entry *script;
+	zend_op_array *op_array = NULL;
 
-  *nreloads = 1;
-  EACCELERATOR_UNPROTECT();
-  p = hash_find_mm(realname, buf, nreloads, ((ea_shm_ttl > 0)?(compile_time + ea_shm_ttl):0) TSRMLS_CC);
-  if (p == NULL && !ea_scripts_shm_only) {
-    p = hash_find_file(realname, buf TSRMLS_CC);
-  }
-  EACCELERATOR_PROTECT();
-  if (p != NULL && p->op_array != NULL) {
-    EAG(class_entry) = NULL;
-    op_array = restore_op_array(NULL, p->op_array TSRMLS_CC);
-    if (op_array != NULL) {
-      ea_fc_entry *e;
-      ea_used_entry *used = emalloc(sizeof(ea_used_entry));
-      used->entry  = p;
-      used->next   = (ea_used_entry*)EAG(used_entries);
-      EAG(used_entries) = (void*)used;
-      EAG(mem) = op_array->filename;
+  script = ea_cache_get(script_cache, realname, (void *)buf);
+
+	if (script != NULL && script->op_array != NULL) {
+		EAG(class_entry) = NULL;
+		op_array = restore_op_array(NULL, script->op_array TSRMLS_CC);
+		if (op_array != NULL) {
+			ea_fc_entry *e;
+			ea_used_entry *used = emalloc(sizeof(ea_used_entry));
+			used->entry = script;
+			used->next = (ea_used_entry*)EAG(used_entries);
+			EAG(used_entries) = (void*)used;
+			EAG(mem) = op_array->filename;
 			/* only restore the classes and functions when we restore this script 
 			 * for the first time. 
 			 */
-      if (!zend_hash_exists(&EAG(restored), p->realfilename, strlen(p->realfilename))) {
-				for (e = p->c_head; e!=NULL; e = e->next) {
-          restore_class(e TSRMLS_CC);
-        }
-        for (e = p->f_head; e!=NULL; e = e->next) {
-          restore_function(e TSRMLS_CC);
-        }
-				zend_hash_add(&EAG(restored), p->realfilename, strlen(p->realfilename), NULL, 0, NULL);  
+			if (!zend_hash_exists(&EAG(restored), script->key, strlen(script->key))) {
+				for (e = script->c_head; e!=NULL; e = e->next) {
+					restore_class(e TSRMLS_CC);
+				}
+				for (e = script->f_head; e!=NULL; e = e->next) {
+					restore_function(e TSRMLS_CC);
+				}
+				zend_hash_add(&EAG(restored), script->key, strlen(script->key), NULL, 0, NULL);  
 			}
-			EAG(mem) = p->realfilename;
-    }
+			EAG(mem) = script->key;
+		}
 #ifdef ZEND_COMPILE_DELAYED_BINDING
-    zend_do_delayed_early_binding(op_array TSRMLS_CC);
+		zend_do_delayed_early_binding(op_array TSRMLS_CC);
 #endif
-  }
-  return op_array;
+	}
+	return op_array;
 }
 
 /*
@@ -1032,11 +538,7 @@ static int eaccelerator_stat(zend_file_handle *file_handle,
 		return 0;
 	}
 
-
-  if (EAG(check_mtime_enabled) && ea_mm_instance->check_mtime_enabled) {
-		return (stat(realname, buf) == 0 && S_ISREG(buf->st_mode));
-	}
-	return 1;
+	return (stat(realname, buf) == 0 && S_ISREG(buf->st_mode));
 }
 
 static int ea_match(struct ea_pattern_t *list, const char *path)
@@ -1244,8 +746,8 @@ ZEND_DLEXPORT zend_op_array* eaccelerator_compile_file(zend_file_handle *file_ha
     DBG(ea_debug_log_hashkeys, ("class_table\n", CG(class_table)));
 
     EAG(compiler) = 0;
-    if (t != NULL && file_handle->opened_path != NULL && ((EAG(check_mtime_enabled) && ea_mm_instance->check_mtime_enabled) ||
-         ((stat(file_handle->opened_path, &buf) == 0) && S_ISREG(buf.st_mode)))) {
+    if (t != NULL && file_handle->opened_path != NULL && 
+         ((stat(file_handle->opened_path, &buf) == 0) && S_ISREG(buf.st_mode))) {
 
       DBG(ea_debug_printf, (EA_TEST_PERFORMANCE, "\t[%d] compile_file: storing in cache (%ld)\n", getpid(), ea_debug_elapsed_time(&tv_start)));
       DBG(ea_debug_printf, (EA_DEBUG, "\t[%d] compile_file: storing in cache\n", getpid()));
@@ -1398,8 +900,6 @@ PHP_MINFO_FUNCTION(eaccelerator) {
               ea_mm_instance->enabled)?"true":"false");
   php_info_print_table_row(2, "Optimizer Enabled", (EAG(optimizer_enabled) && 
 							(ea_mm_instance != NULL) && ea_mm_instance->optimizer_enabled)?"true":"false");
-  php_info_print_table_row(2, "Check mtime Enabled", (EAG(check_mtime_enabled) && 
-							(ea_mm_instance != NULL) && ea_mm_instance->check_mtime_enabled)?"true":"false");
   if (ea_mm_instance != NULL) {
     size_t available;
     EACCELERATOR_UNPROTECT();
@@ -1412,9 +912,9 @@ PHP_MINFO_FUNCTION(eaccelerator) {
     php_info_print_table_row(2, "Memory Available", s);
     format_size(s, ea_mm_instance->total - available, 1);
     php_info_print_table_row(2, "Memory Allocated", s);
-    snprintf(s, 32, "%u", ea_mm_instance->hash_cnt);
+    snprintf(s, 32, "%u", 0);
     php_info_print_table_row(2, "Cached Scripts", s);
-    snprintf(s, 32, "%u", ea_mm_instance->rem_cnt);
+    snprintf(s, 32, "%u", 0);
     php_info_print_table_row(2, "Removed Scripts", s);
     EACCELERATOR_UNPROTECT();
     EACCELERATOR_UNLOCK_RD();
@@ -1479,15 +979,14 @@ static PHP_INI_MH(eaccelerator_OnUpdateBool) {
 }
 
 PHP_INI_BEGIN()
-STD_PHP_INI_ENTRY("eaccelerator.enable",         "1", PHP_INI_ALL, OnUpdateBool, enabled, zend_eaccelerator_globals, eaccelerator_globals)
-STD_PHP_INI_ENTRY("eaccelerator.optimizer",      "1", PHP_INI_ALL, OnUpdateBool, optimizer_enabled, zend_eaccelerator_globals, eaccelerator_globals)
+STD_PHP_INI_ENTRY("eaccelerator.enable",        "1", PHP_INI_ALL, OnUpdateBool, enabled, zend_eaccelerator_globals, eaccelerator_globals)
+STD_PHP_INI_ENTRY("eaccelerator.optimizer",     "1", PHP_INI_ALL, OnUpdateBool, optimizer_enabled, zend_eaccelerator_globals, eaccelerator_globals)
 ZEND_INI_ENTRY1("eaccelerator.shm_size",        "0", PHP_INI_SYSTEM, eaccelerator_OnUpdateLong, &ea_shm_size)
 ZEND_INI_ENTRY1("eaccelerator.shm_max",         "0", PHP_INI_SYSTEM, eaccelerator_OnUpdateLong, &ea_shm_max)
 ZEND_INI_ENTRY1("eaccelerator.shm_ttl",         "0", PHP_INI_SYSTEM, eaccelerator_OnUpdateLong, &ea_shm_ttl)
 ZEND_INI_ENTRY1("eaccelerator.shm_prune_period", "0", PHP_INI_SYSTEM, eaccelerator_OnUpdateLong, &ea_shm_prune_period)
 ZEND_INI_ENTRY1("eaccelerator.debug",           "1", PHP_INI_SYSTEM, eaccelerator_OnUpdateLong, &ea_debug)
 STD_PHP_INI_ENTRY("eaccelerator.log_file",      "", PHP_INI_SYSTEM, OnUpdateString, ea_log_file, zend_eaccelerator_globals, eaccelerator_globals)
-STD_PHP_INI_ENTRY("eaccelerator.check_mtime",     "1", PHP_INI_SYSTEM, OnUpdateBool, check_mtime_enabled, zend_eaccelerator_globals, eaccelerator_globals)
 ZEND_INI_ENTRY1("eaccelerator.shm_only",        "0", PHP_INI_SYSTEM, eaccelerator_OnUpdateBool, &ea_scripts_shm_only)
 #ifdef WITH_EACCELERATOR_INFO
 STD_PHP_INI_ENTRY("eaccelerator.allowed_admin_path",       "", PHP_INI_SYSTEM, OnUpdateString, allowed_admin_path, zend_eaccelerator_globals, eaccelerator_globals)
@@ -1496,71 +995,69 @@ STD_PHP_INI_ENTRY("eaccelerator.cache_dir",      "/tmp/eaccelerator", PHP_INI_SY
 PHP_INI_ENTRY("eaccelerator.filter",             "",  PHP_INI_ALL, eaccelerator_filter)
 PHP_INI_END()
 
-static void eaccelerator_clean_request(TSRMLS_D) {
-  ea_used_entry  *p = (ea_used_entry*)EAG(used_entries);
-  if (ea_mm_instance != NULL) {
-    EACCELERATOR_UNPROTECT();
-    if (p != NULL || ea_mm_instance->locks != NULL) {
-      EACCELERATOR_LOCK_RW();
-      while (p != NULL) {
-        p->entry->use_cnt--;
-        if (p->entry->removed && p->entry->use_cnt <= 0) {
-          if (ea_mm_instance->removed == p->entry) {
-            ea_mm_instance->removed = p->entry->next;
-            ea_mm_instance->rem_cnt--;
-            eaccelerator_free_nolock(p->entry);
-            p->entry = NULL;
-          } else {
-            ea_cache_entry *q = ea_mm_instance->removed;
-            while (q != NULL && q->next != p->entry) {
-              q = q->next;
-            }
-            if (q != NULL) {
-              q->next = p->entry->next;
-              ea_mm_instance->rem_cnt--;
-              eaccelerator_free_nolock(p->entry);
-              p->entry = NULL;
-            }
-          }
-        }
-        p = p->next;
-      }
-      if (ea_mm_instance->locks != NULL) {
-        pid_t    pid    = getpid();
+	// clean up this request
+static void eaccelerator_clean_request(TSRMLS_D) 
+{
+	ea_used_entry *p, *r;
+
+	if (ea_mm_instance != NULL) {
+		EACCELERATOR_UNPROTECT();
+
+		p = (ea_used_entry*)EAG(used_entries);
+		if (p != NULL || ea_mm_instance->locks != NULL) {
+			EACCELERATOR_LOCK_RW(); /** LOCK **/
+
+			// decrement the reference counts from used cache entries for this request
+			while (p != NULL) {
+				p->entry->ref_cnt--;
+				if (p->entry->ref_cnt <= 0) {
+					DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Removing %s with refcount 0\n", p->entry->key));
+					EA_FREE_CACHE_ENTRY_NO_LOCK(p->entry);
+				}
+				p = p->next;
+			}
+
+			// remove any locks that this process holds
+			if (ea_mm_instance->locks != NULL) {
+				pid_t pid = getpid();
 #ifdef ZTS
-        THREAD_T thread = tsrm_thread_id();
+				THREAD_T thread = tsrm_thread_id();
 #endif
-        ea_lock_entry** p = &ea_mm_instance->locks;
-        while ((*p) != NULL) {
+				ea_lock_entry** p = &ea_mm_instance->locks;
+				while ((*p) != NULL) {
 #ifdef ZTS
-          if ((*p)->pid == pid && (*p)->thread == thread) {
+					if ((*p)->pid == pid && (*p)->thread == thread) {
 #else
-          if ((*p)->pid == pid) {
+						if ((*p)->pid == pid) {
 #endif
-            ea_lock_entry* x = *p;
-            *p = (*p)->next;
-            eaccelerator_free_nolock(x);
-          } else {
-            p = &(*p)->next;
-          }
-        }
-      }
-      EACCELERATOR_UNLOCK_RW();
-    }
-    EACCELERATOR_PROTECT();
-    p = (ea_used_entry*)EAG(used_entries);
-    while (p != NULL) {
-      ea_used_entry* r = p;
-      p = p->next;
-      if (r->entry != NULL && r->entry->use_cnt < 0) {
-        eaccelerator_free(r->entry);
-      }
-      efree(r);
-    }
-  }
-  EAG(used_entries) = NULL;
-  EAG(in_request) = 0;
-}
+							ea_lock_entry* x = *p;
+							*p = (*p)->next;
+							eaccelerator_free_nolock(x);
+						} else {
+							p = &(*p)->next;
+						}
+					}
+				}
+				EACCELERATOR_UNLOCK_RW(); /** UNLOCK **/
+			}
+
+			EACCELERATOR_PROTECT();
+
+			// free the used_entry structures (maybe some refcounts have become zero)
+			p = (ea_used_entry*)EAG(used_entries);
+			while (p != NULL) {
+				r = p;
+				p = p->next;
+				if (r->entry != NULL && r->entry->ref_cnt <= 0) {
+					DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Removing %s with refcount 0\n", r->entry->key));
+					EA_FREE_CACHE_ENTRY(r->entry);
+				}
+				efree(r);
+			}
+		}
+		EAG(used_entries) = NULL;
+		EAG(in_request) = 0;
+	}
 
 /* signal handlers */
 #ifdef WITH_EACCELERATOR_CRASH_DETECTION
@@ -1634,7 +1131,6 @@ static void eaccelerator_init_globals(zend_eaccelerator_globals *eag)
 	eag->enabled = 1;
 	eag->cache_dir = NULL;
 	eag->optimizer_enabled = 1;
-	eag->check_mtime_enabled = 1;
 	eag->compiler = 0;
 	eag->ea_log_file = '\000';
 	eag->in_request = 0;
@@ -1679,27 +1175,6 @@ static int eaccelerator_check_php_version(TSRMLS_D) {
   return ret;
 }
 
-static void make_hash_dirs(char *fullpath, int lvl) {
-  int j;
-  int n = strlen(fullpath);
-  mode_t old_umask = umask(0);
-  
-  if (lvl < 1)
-    return;
-  if (fullpath[n-1] != '/')
-    fullpath[n++] = '/';
-  
-  for (j = 0; j < 16; j++) {
-    fullpath[n] = num2hex[j];       
-    fullpath[n+1] = 0;
-    mkdir(fullpath, 0777);
-    make_hash_dirs(fullpath, lvl-1);
-  }
-  fullpath[n+2] = 0;
-  umask(old_umask);
-}
-
-
 PHP_MINIT_FUNCTION(eaccelerator) {
   char fullpath[MAXPATHLEN];
 
@@ -1727,17 +1202,9 @@ PHP_MINIT_FUNCTION(eaccelerator) {
   REGISTER_LONG_CONSTANT("EACCELERATOR_SHM_ONLY", ea_shm_only, CONST_CS | CONST_PERSISTENT);
   REGISTER_LONG_CONSTANT("EACCELERATOR_DISK_ONLY", ea_disk_only, CONST_CS | CONST_PERSISTENT);
   REGISTER_LONG_CONSTANT("EACCELERATOR_NONE", ea_none, CONST_CS | CONST_PERSISTENT);
-  encode_version(EACCELERATOR_VERSION, &binary_eaccelerator_version[0], &binary_eaccelerator_version[1]);
-  encode_version(PHP_VERSION, &binary_php_version[0], &binary_php_version[1]);
-  encode_version(ZEND_VERSION, &binary_zend_version[0], &binary_zend_version[1]);
   ea_is_extension = 1;
 
   ea_debug_init(TSRMLS_C);
-
-  if(!ea_scripts_shm_only) {
-    snprintf(fullpath, MAXPATHLEN-1, "%s/", EAG(cache_dir));
-    make_hash_dirs(fullpath, EACCELERATOR_HASH_LEVEL);
-  }
 
   if (type == MODULE_PERSISTENT &&
       strcmp(sapi_module.name, "cgi") != 0 &&
@@ -1899,7 +1366,6 @@ function_entry eaccelerator_functions[] = {
   PHP_FE(eaccelerator_purge, NULL)
   PHP_FE(eaccelerator_cached_scripts, NULL)
   PHP_FE(eaccelerator_removed_scripts, NULL)
-  PHP_FE(eaccelerator_check_mtime, NULL)
   #ifdef WITH_EACCELERATOR_OPTIMIZER
     PHP_FE(eaccelerator_optimizer, NULL)
   #endif
@@ -2243,5 +1709,5 @@ static void register_eaccelerator_as_zend_extension() {
  * tab-width: 2
  * c-basic-offset: 2
  * End:
- * vim: noet sw=2 ts=2 fdm=marker
+ * vim: noet tabstop=2 softtabstop=2 shiftwidth=2
  */

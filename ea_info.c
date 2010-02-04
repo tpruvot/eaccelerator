@@ -27,6 +27,7 @@
 
 #include "eaccelerator.h"
 #include "eaccelerator_version.h"
+#include "ea_cache.h"
 #include "ea_info.h"
 #include "mm.h"
 #include "zend.h"
@@ -141,7 +142,7 @@ static void clear_filecache(const char* dir)
 static inline void clean_file(char *file, time_t t) 
 {
 	int f;
-
+/*
 	if ((f = open(file, O_RDONLY | O_BINARY)) > 0) {
 		ea_file_header hdr;
 		EACCELERATOR_FLOCK (f, LOCK_SH);
@@ -155,7 +156,7 @@ static inline void clean_file(char *file, time_t t)
 			EACCELERATOR_FLOCK (f, LOCK_UN);
 			close (f);
 		}
-	}
+	}*/
 }
 /* }}} */
 
@@ -176,35 +177,7 @@ PHP_FUNCTION(eaccelerator_clean)
 	t = time (NULL);
 
 	/* Remove expired scripts from shared memory */
-	eaccelerator_prune (t);
-}
-/* }}} */
-
-/* {{{ PHP_FUNCTION(eaccelerator_check_mtime): enable or disable check_mtime */
-PHP_FUNCTION(eaccelerator_check_mtime) 
-{
-    zend_bool enable;
-    
-	if (ea_mm_instance == NULL) {
-		RETURN_NULL();
-	}
-
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "b", &enable) == FAILURE)
-		return;
-
-    if (isAdminAllowed(TSRMLS_C)) {
-        EACCELERATOR_UNPROTECT();
-        if (enable) {
-            ea_mm_instance->check_mtime_enabled = 1;
-        } else {
-            ea_mm_instance->check_mtime_enabled = 0;
-        }
-        EACCELERATOR_PROTECT();
-    } else {
-        zend_error(E_WARNING, NOT_ADMIN_WARNING);
-    }
-    
-    RETURN_NULL();
+//	eaccelerator_prune (t);
 }
 /* }}} */
 
@@ -280,7 +253,7 @@ PHP_FUNCTION(eaccelerator_clear)
         zend_error(E_WARNING, NOT_ADMIN_WARNING);
         RETURN_NULL();
     }
-
+/*
 	EACCELERATOR_UNPROTECT ();
 	EACCELERATOR_LOCK_RW ();
 	for (i = 0; i < EA_HASH_SIZE; i++) {
@@ -306,7 +279,7 @@ PHP_FUNCTION(eaccelerator_clear)
 	if(!ea_scripts_shm_only) {
 		clear_filecache(EAG(cache_dir));
     }
-
+*/
     RETURN_NULL();
 }
 /* }}} */
@@ -319,7 +292,7 @@ PHP_FUNCTION(eaccelerator_purge)
         zend_error(E_WARNING, NOT_ADMIN_WARNING);
         RETURN_NULL();
     }
-
+/*
 	if (ea_mm_instance != NULL) {
 		ea_cache_entry *p, *q;
 		EACCELERATOR_UNPROTECT();
@@ -334,7 +307,7 @@ PHP_FUNCTION(eaccelerator_purge)
 		}
 		EACCELERATOR_UNLOCK_RW();
 		EACCELERATOR_PROTECT();
-	}
+	}*/
     RETURN_NULL();
 }
 /* }}} */
@@ -370,14 +343,14 @@ PHP_FUNCTION (eaccelerator_info)
 	add_assoc_bool(return_value, "optimizer", (EAG (optimizer_enabled)
 		&& (ea_mm_instance != NULL)
 		&& ea_mm_instance->optimizer_enabled) ? 1 : 0);
-	add_assoc_bool(return_value, "check_mtime", (EAG (check_mtime_enabled)
+/*	add_assoc_bool(return_value, "check_mtime", (EAG (check_mtime_enabled)
 		&& (ea_mm_instance != NULL)
-		&& ea_mm_instance->check_mtime_enabled) ? 1 : 0);
+		&& ea_mm_instance->check_mtime_enabled) ? 1 : 0);*/
 	add_assoc_long(return_value, "memorySize", ea_mm_instance->total);
 	add_assoc_long(return_value, "memoryAvailable", available);
 	add_assoc_long(return_value, "memoryAllocated", ea_mm_instance->total - available);
-	add_assoc_long(return_value, "cachedScripts", ea_mm_instance->hash_cnt);
-	add_assoc_long(return_value, "removedScripts", ea_mm_instance->rem_cnt);
+//	add_assoc_long(return_value, "cachedScripts", ea_mm_instance->hash_cnt);
+//	add_assoc_long(return_value, "removedScripts", ea_mm_instance->rem_cnt);
 
 	return;
 }
@@ -399,7 +372,7 @@ PHP_FUNCTION(eaccelerator_cached_scripts)
     }
 
     array_init(return_value);
-    
+/*    
     for (i = 0; i < EA_HASH_SIZE; i++) {
         p = ea_mm_instance->hash[i];
         while (p != NULL) {
@@ -417,7 +390,7 @@ PHP_FUNCTION(eaccelerator_cached_scripts)
             add_next_index_zval(return_value, script); 
             p = p->next;
         }
-    }
+    }*/
     return;
 }
 /* }}} */
@@ -439,7 +412,7 @@ PHP_FUNCTION(eaccelerator_removed_scripts)
 
     MAKE_STD_ZVAL(script);
     array_init(return_value);
-
+/*
     p = ea_mm_instance->removed;
     while (p != NULL) {
         array_init(script);
@@ -451,7 +424,7 @@ PHP_FUNCTION(eaccelerator_removed_scripts)
         add_assoc_long(script, "hits", p->nhits);
         add_next_index_zval(return_value, script); 
         p = p->next;
-    }
+    }*/
     return;
 }
 /* }}} */
