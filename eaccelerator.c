@@ -227,7 +227,8 @@ static int eaccelerator_store(char* key, struct stat *buf, int nreloads,
 
 	int len = strlen(key);
 	int use_shm = 1;
-	int size = 0, ret = 0;
+	int size = 0;
+	int ret = 0;
 
 	// calculate the script size
 	zend_try {
@@ -256,15 +257,22 @@ static int eaccelerator_store(char* key, struct stat *buf, int nreloads,
 
 	if (EAG(mem)) {
 		memset(EAG(mem), 0, size);
+		script = (ea_cache_entry *)EAG(mem);
+
 		eaccelerator_store_int(script, key, len, op_array, f, c TSRMLS_CC);
+
 		script->mtime = buf->st_mtime;
+		script->ts = EAG(req_start);
 		script->filesize = buf->st_size;
 		script->size = size;
+		script->nreloads = nreloads;
 		script->alloc = (use_shm == 1) ? ea_shared_mem : ea_emalloc;
 
 		EACCELERATOR_PROTECT();
 
 		ret = ea_cache_put(script_cache, script);
+
+		mm_check_mem(EAG(mem));
 
 		if (script->alloc == ea_emalloc) {
 			efree(script);   
@@ -1011,7 +1019,7 @@ static void eaccelerator_clean_request(TSRMLS_D)
 			while (p != NULL) {
 				p->entry->ref_cnt--;
 				if (p->entry->ref_cnt <= 0) {
-					DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Removing %s with refcount 0\n", p->entry->key));
+					DBG(ea_debug_printf, (EA_DEBUG, "Removing %s with refcount 0\n", p->entry->key));
 					EA_FREE_CACHE_ENTRY_NO_LOCK(p->entry);
 				}
 				p = p->next;
@@ -1049,7 +1057,7 @@ static void eaccelerator_clean_request(TSRMLS_D)
 				r = p;
 				p = p->next;
 				if (r->entry != NULL && r->entry->ref_cnt <= 0) {
-					DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Removing %s with refcount 0\n", r->entry->key));
+					DBG(ea_debug_printf, (EA_DEBUG, "Removing %s with refcount 0\n", r->entry->key));
 					EA_FREE_CACHE_ENTRY(r->entry);
 				}
 				efree(r);
@@ -1205,6 +1213,7 @@ PHP_MINIT_FUNCTION(eaccelerator) {
   ea_is_extension = 1;
 
   ea_debug_init(TSRMLS_C);
+	ea_cache_init();
 
   if (type == MODULE_PERSISTENT &&
       strcmp(sapi_module.name, "cgi") != 0 &&

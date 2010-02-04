@@ -73,6 +73,9 @@
 /* log the hashkeys used to cache scripts */
 #define EA_LOG_HASHKEYS		(1<<4L)
 
+/* debug the cache code */
+#define EA_DEBUG_CACHE      (1<<5L)
+
 void ea_debug_init (TSRMLS_D);
 void ea_debug_shutdown ();
 void ea_debug_printf (long debug_level, char *format, ...);

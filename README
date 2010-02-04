@@ -95,7 +95,6 @@ To install as Zend extension:
   eaccelerator.cache_dir="/tmp/eaccelerator"
   eaccelerator.enable="1"
   eaccelerator.optimizer="1"
-  eaccelerator.check_mtime="1"
   eaccelerator.debug="0"
   eaccelerator.filter=""
   eaccelerator.shm_max="0"
@@ -115,7 +114,6 @@ To install as PHP extension:
   eaccelerator.cache_dir="/tmp/eaccelerator"
   eaccelerator.enable="1"
   eaccelerator.optimizer="1"
-  eaccelerator.check_mtime="1"
   eaccelerator.debug="0"
   eaccelerator.filter=""
   eaccelerator.shm_max="0"
@@ -156,11 +154,6 @@ eaccelerator.optimizer
 eaccelerator.debug
     Enables or disables debug logging. Should be "1" for enabling or  "0"  for
     disabling. Default value is "0".
-
-eaccelerator.check_mtime
-    Enables or disables PHP file modification checking .  Should  be  "1"  for
-    enabling or "0" for disabling. You should set it to "1"  if  you  want  to
-    recompile PHP files after modification. Default value is "1".
 
 eaccelerator.filter
     Determine which PHP files must be cached. You may specify  the  number  of

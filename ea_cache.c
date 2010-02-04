@@ -210,6 +210,7 @@ void ea_cache_init()
     
     if(!ea_scripts_shm_only) {
         snprintf(fullpath, MAXPATHLEN-1, "%s/", EAG(cache_dir));
+				DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Creating cache directory %s\n", fullpath));
         make_hash_dirs(fullpath, EACCELERATOR_HASH_LEVEL);
     }
 }
@@ -343,15 +344,15 @@ static ea_cache_entry* ea_cache_file_get(const char *key, void *data, int (* com
 
     // does the filename and the key match?
     if (strcmp(key, script->key) != 0) {
-        EA_FREE_CACHE_ENTRY(script);
+        EA_FREE_CACHE_ENTRY_NO_LOCK(script);
         DBG(ea_debug_printf, (EA_DEBUG_CACHE, "keys didn't match!\n", key));
         unlink(file);
         return NULL;
     }
 
-    // check mtime
+    // check if the script is valid
     if (compare_func != NULL && !compare_func(script, data)) {
-        EA_FREE_CACHE_ENTRY(script);
+        EA_FREE_CACHE_ENTRY_NO_LOCK(script);
         unlink(file);
         DBG(ea_debug_printf, (EA_DEBUG_CACHE, "compare function failed\n", key));
         return NULL;
@@ -404,6 +405,7 @@ static int ea_cache_file_put(ea_cache_entry *script TSRMLS_DC)
     if (!ret) {
         unlink(file);
     }
+		DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Stored %s in cache file %s\n", script->key, file));
     return ret;
 }
 

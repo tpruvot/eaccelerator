@@ -850,6 +850,7 @@ void eaccelerator_store_int(ea_cache_entry *entry, char *key, int len, zend_op_a
 
     entry->nhits = 0;
     entry->ref_cnt = 0;
+    entry->removed = 0;
     entry->f_head = NULL;
     entry->c_head = NULL;
 

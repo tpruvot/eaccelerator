@@ -39,15 +39,17 @@ typedef struct ea_cache_entry {
     unsigned int hv;            /* hash value                        */
     off_t filesize;             /* file size                         */
     time_t mtime;               /* file last modification time       */
+		time_t ts;									/* timestamp of cache entry					 */
     time_t ttl;                 /* expiration time                   */
     size_t size;                /* entry size (bytes)                */
     unsigned int nhits;         /* hits count                        */
     ea_op_array *op_array;      /* script's global scope code        */
     ea_fc_entry *f_head;        /* list of nested functions          */
     ea_fc_entry *c_head;        /* list of nested classes            */
-    //int nreloads;             /* count of reloads                  */
+    unsigned int nreloads;      /* count of reloads                  */
     int ref_cnt;                /* how many processes uses the entry */
-    void *data;                 /* the date this entry points to     */
+    void *data;                 /* the data this entry points to     */
+		int removed :1;
     char key[1];                /* real file name (must be last el.) */
 } ea_cache_entry;
 
