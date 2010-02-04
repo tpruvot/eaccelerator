@@ -327,6 +327,14 @@ switch ($sec) {
     <td class="fl"><?php echo format_size($info['memoryAvailable'])?></td>
 </tr>
 <tr>
+    <td class="er">Hashtable size</td>
+    <td class="fl"><?php echo number_format($info['htSize']); ?></td>
+</tr>
+<tr>
+    <td class="er">Hashtable loadfactor</td>
+    <td class="fl"><?php echo number_format(($info['cachedScripts'] / $info['htSize']) * 100, 2) ?>%</td>
+</tr>
+<tr>
     <td class="er">Cached scripts</td>
     <td class="fl"><?php echo number_format($info['cachedScripts']); ?></td>
 </tr>

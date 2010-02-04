@@ -495,7 +495,7 @@ static void ea_cache_hashtable_grow(ea_hashtable_t *ht)
 			"Unable to grow the hashtable. Allocating %d bytes failed\n", sizeof(ea_cache_entry*) * new_size));
         return;
     }
-    memset(new_entries, 0, sizeof(ea_cache_entry) * new_size);
+    memset(new_entries, 0, sizeof(ea_cache_entry *) * new_size);
     
     // rehash the table
     for (i = 0; i < ht->size; ++i) {

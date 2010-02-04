@@ -351,6 +351,7 @@ PHP_FUNCTION (eaccelerator_info)
 	add_assoc_long(return_value, "memoryAvailable", available);
 	add_assoc_long(return_value, "memoryAllocated", ea_mm_instance->total - available);
 	add_assoc_long(return_value, "cachedScripts", ea_script_cache->ht->elements);
+	add_assoc_long(return_value, "htSize", ea_script_cache->ht->size);
 
 	return;
 }

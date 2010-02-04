@@ -30,7 +30,10 @@
 
 #include "eaccelerator.h"
 
-//#define EA_CACHE_DYN_HT
+#define EA_CACHE_DYN_HT
+#define EACCELERATOR_HASH_LEVEL 2
+#define EA_HASH_SIZE            2
+#define EA_HASH_MAX							(EA_HASH_SIZE-1)
 
 typedef enum ea_alloc_place {
     ea_shared_mem,

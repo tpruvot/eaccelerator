@@ -165,11 +165,6 @@
 #define EACCELERATOR_BLOCK_INTERRUPTIONS()   HANDLE_BLOCK_INTERRUPTIONS()
 #define EACCELERATOR_UNBLOCK_INTERRUPTIONS() HANDLE_UNBLOCK_INTERRUPTIONS()
 
-#define EACCELERATOR_HASH_LEVEL 2
-#define EA_HASH_SIZE            512
-
-#define EA_HASH_MAX       (EA_HASH_SIZE-1)
-
 #define eaccelerator_malloc(size)        mm_malloc_lock(ea_mm_instance->mm, size);
 #define eaccelerator_free(x)             mm_free_lock(ea_mm_instance->mm, x)
 #define eaccelerator_malloc_nolock(size) mm_malloc_nolock(ea_mm_instance->mm, size)
@@ -334,11 +329,7 @@ MUTEX_T ea_mutex;
 extern zend_module_entry eaccelerator_module_entry;
 #define phpext_eaccelerator_ptr &eaccelerator_module_entry
 
-
 void format_size (char *s, unsigned int size, int legend);
-void eaccelerator_prune (time_t t);
-
-void *eaccelerator_malloc2 (size_t size TSRMLS_DC);
 
 #  ifdef WITH_EACCELERATOR_OPTIMIZER
 void eaccelerator_optimize (zend_op_array * op_array);
