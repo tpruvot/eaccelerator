@@ -44,6 +44,7 @@
 #define NOT_ADMIN_WARNING "This script isn't in the allowed_admin_path setting!"
 
 extern eaccelerator_mm *ea_mm_instance;
+extern ea_cache_t *script_cache;
 
 /* for checking if shm_only storage */
 extern zend_bool ea_scripts_shm_only;
@@ -349,7 +350,7 @@ PHP_FUNCTION (eaccelerator_info)
 	add_assoc_long(return_value, "memorySize", ea_mm_instance->total);
 	add_assoc_long(return_value, "memoryAvailable", available);
 	add_assoc_long(return_value, "memoryAllocated", ea_mm_instance->total - available);
-//	add_assoc_long(return_value, "cachedScripts", ea_mm_instance->hash_cnt);
+	add_assoc_long(return_value, "cachedScripts", script_cache->ht->elements);
 //	add_assoc_long(return_value, "removedScripts", ea_mm_instance->rem_cnt);
 
 	return;
@@ -357,6 +358,23 @@ PHP_FUNCTION (eaccelerator_info)
 /* }}} */
 
 /* {{{ PHP_FUNCTION(eaccelerator_cached_scripts): Get an array with information about all cached scripts */
+void format_cache_entry(ea_cache_entry *p, void *data)
+{
+	zval *table = (zval *) data;
+	zval *script = NULL;
+
+	MAKE_STD_ZVAL(script);
+	array_init(script);
+	add_assoc_string(script, "file", p->key, 1);
+	add_assoc_long(script, "mtime", p->mtime);
+	add_assoc_long(script, "ts", p->ts);
+	add_assoc_long(script, "ttl", p->ttl);
+	add_assoc_long(script, "size", p->size);
+	add_assoc_long(script, "usecount", p->ref_cnt);
+	add_assoc_long(script, "hits", p->nhits);
+	add_next_index_zval(table, script); 
+}
+
 PHP_FUNCTION(eaccelerator_cached_scripts)
 {
     ea_cache_entry *p;
@@ -372,26 +390,8 @@ PHP_FUNCTION(eaccelerator_cached_scripts)
     }
 
     array_init(return_value);
-/*    
-    for (i = 0; i < EA_HASH_SIZE; i++) {
-        p = ea_mm_instance->hash[i];
-        while (p != NULL) {
-            zval *script;
-            MAKE_STD_ZVAL(script);
-            array_init(script);
-            add_assoc_string(script, "file", p->realfilename, 1);
-            add_assoc_long(script, "mtime", p->mtime);
-            add_assoc_long(script, "ts", p->ts);
-            add_assoc_long(script, "ttl", p->ttl);
-            add_assoc_long(script, "size", p->size);
-            add_assoc_long(script, "reloads", p->nreloads);
-            add_assoc_long(script, "usecount", p->use_cnt);
-            add_assoc_long(script, "hits", p->nhits);
-            add_next_index_zval(return_value, script); 
-            p = p->next;
-        }
-    }*/
-    return;
+
+	ea_cache_walk_ht(script_cache, format_cache_entry, (void *)return_value);
 }
 /* }}} */
 

@@ -175,26 +175,26 @@ static void make_hash_dirs(char *fullpath, int lvl)
 }
 
 static int ea_md5(char* s, const char* prefix, const char* key TSRMLS_DC) {
-  char md5str[33];
-  PHP_MD5_CTX context;
-  unsigned char digest[16];
-  int i;
-  int n;
+	char md5str[33];
+	PHP_MD5_CTX context;
+	unsigned char digest[16];
+	int i;
+	int n;
 
-  md5str[0] = '\0';
-  PHP_MD5Init(&context);
-  PHP_MD5Update(&context, (unsigned char*)key, strlen(key));
-  PHP_MD5Final(digest, &context);
-  make_digest(md5str, digest);
-  snprintf(s, MAXPATHLEN-1, "%s/", EAG(cache_dir));
-  n = strlen(s);
-  for (i = 0; i < EACCELERATOR_HASH_LEVEL && n < MAXPATHLEN - 1; i++) {
-    s[n++] = md5str[i];
-    s[n++] = '/';
-  }
-  s[n] = 0;
-  snprintf(&s[n], MAXPATHLEN-1-n, "%s%s", prefix, md5str);
-  return 1;
+	md5str[0] = '\0';
+	PHP_MD5Init(&context);
+	PHP_MD5Update(&context, (unsigned char*)key, strlen(key));
+	PHP_MD5Final(digest, &context);
+	make_digest(md5str, digest);
+	snprintf(s, MAXPATHLEN-1, "%s/", EAG(cache_dir));
+	n = strlen(s);
+	for (i = 0; i < EACCELERATOR_HASH_LEVEL && n < MAXPATHLEN - 1; i++) {
+		s[n++] = md5str[i];
+		s[n++] = '/';
+	}
+	s[n] = 0;
+	snprintf(&s[n], MAXPATHLEN-1-n, "%s%s", prefix, md5str);
+	return 1;
 }
 
 void ea_cache_init()
@@ -424,11 +424,11 @@ static void ea_cache_dump_ht(ea_hashtable_t *ht)
             ea_debug_printf(EA_DEBUG_CACHE, "\t%d (0x%x) => %s\n", i, p->hv, p->key);
             if (p != NULL && p == p->next) {
                 ea_debug_printf(EA_DEBUG_CACHE, "\tStupid fuck, you made a loop!\n");
-                return;   
+                return;
             }
             p = p->next;
-        }   
-    }   
+        } 
+    }
 }
 #endif
 
@@ -578,7 +578,9 @@ static void ea_cache_hashtable_put(ea_hashtable_t *ht, ea_cache_entry *entry)
     entry->next = ht->entries[slot];
     ht->entries[slot] = entry;
     
-    DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Stored key '%s' with hv 0x%x in hashtable at slot %d\n", entry->key, entry->hv, slot)); 
+    DBG(ea_debug_printf, (EA_DEBUG_CACHE, 
+		"Stored key '%s' with hv 0x%x in hashtable at slot %d\n", 
+		entry->key, entry->hv, slot)); 
     
     // when the entry is in the hashtable it's ref_cnt is set to 1, this means
     // that a ref_cnt of 0 means the entry can be removed. No removed list is 
@@ -597,14 +599,15 @@ static void ea_cache_hashtable_put(ea_hashtable_t *ht, ea_cache_entry *entry)
     
     while (p != NULL) {
         if (p->hv == entry->hv && strncmp(p->key, entry->key, key_len) == 0) {
-            DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Removed %s from hashtable (replacement)\n", p->key));
+            DBG(ea_debug_printf, (EA_DEBUG_CACHE, 
+				"Removed %s from hashtable (replacement)\n", p->key));
             // this is an old value of the same data, remove it
             q->next = p->next;
             ht->elements--;
                 
             // remove the script when the use_cnt is 0 otherwise just mark 
-            // it as removed, the last process which puts the usecount to 
-            // zero should removes it
+            // it as removed, the last process which puts the ref_cnt to 
+            // zero should remove it
             entry->ref_cnt--;
             if (entry->ref_cnt == 0) {
                 eaccelerator_free_nolock(entry);
@@ -630,7 +633,8 @@ int ea_cache_put(ea_cache_t *cache, ea_cache_entry *entry)
         
         ea_cache_hashtable_put(cache->ht, entry);
         
-        DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Put %s in hashtable, refcount is %d\n", entry->key, entry->ref_cnt));
+        DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Put %s in hashtable, refcount is %d\n", 
+			entry->key, entry->ref_cnt));
         
         EACCELERATOR_UNLOCK_RW();
         EACCELERATOR_PROTECT();
@@ -668,7 +672,8 @@ ea_cache_entry *ea_cache_get(ea_cache_t *cache, const char *key, void *data)
     
 #ifdef DEBUG
     if (script != NULL) {
-        ea_debug_printf(EA_DEBUG_CACHE, "Found key '%s' with refcount %d\n", key, script->ref_cnt);
+        ea_debug_printf(EA_DEBUG_CACHE, "Found key '%s' with refcount %d\n", 
+			key, script->ref_cnt);
     }
 #endif
     
@@ -689,8 +694,36 @@ ea_cache_t *ea_cache_create(size_t size)
     return cache;
 }
 
+void ea_cache_walk_ht(ea_cache_t *cache, 
+		void (* format_func) (ea_cache_entry *, void *), void *data)
+{
+	int i;
+	ea_cache_entry *p;
+
+    EACCELERATOR_UNPROTECT(); // TODO: only read lock required
+    EACCELERATOR_LOCK_RW();
+
+	ea_debug_printf(EA_DEBUG_CACHE, "Walking ht with %d buckets and %d elements\n", 
+			cache->ht->size, cache->ht->elements);
+
+	for (i = 0; i < cache->ht->size; ++i) {
+		p = cache->ht->entries[i];
+		while (p != NULL) {
+			if (p != NULL && p == p->next) {
+				ea_debug_printf(EA_DEBUG_CACHE, "Stupid fuck, you made a loop in your HT!\n");
+				return;
+			}
+			format_func(p, data);
+			p = p->next;
+		} 
+	}
+
+    EACCELERATOR_UNLOCK_RW();
+    EACCELERATOR_PROTECT();
+}
+
 #endif /* HAVE_EACCELERATOR */
 
 /*
- * vim: noet tabstop=2 softtabstop=2 shiftwidth=2
+ * vim: noet tabstop=4 softtabstop=4 shiftwidth=4
  */

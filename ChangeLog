@@ -1,7 +1,6 @@
 2010-02-04  Bart Vanbrabant <bart at vanbrabant.eu>
 
-		* First very early work to rewrite the caching code. The code only 
-		compiles and segfaults for now.
+		* First very early work to rewrite the caching code.
 
 2010-02-03	Bart Vanbrabant <bart at vanbrabant.eu>
 

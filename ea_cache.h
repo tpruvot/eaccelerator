@@ -46,10 +46,8 @@ typedef struct ea_cache_entry {
     ea_op_array *op_array;      /* script's global scope code        */
     ea_fc_entry *f_head;        /* list of nested functions          */
     ea_fc_entry *c_head;        /* list of nested classes            */
-    unsigned int nreloads;      /* count of reloads                  */
     int ref_cnt;                /* how many processes uses the entry */
     void *data;                 /* the data this entry points to     */
-		int removed :1;
     char key[1];                /* real file name (must be last el.) */
 } ea_cache_entry;
 
@@ -134,18 +132,24 @@ ea_cache_t *ea_cache_create(size_t size);
  */
 void ea_cache_init();
 
+/**
+ * Walk through all the cached scripts in that are in memory.
+ *
+ * @param cache The cache to walk the hashtable from
+ * @param format_func The function to format the cache entries
+ * @param data Data to pass to the format function.
+ */
+void ea_cache_walk_ht(ea_cache_t *cache, void (* format_func) (ea_cache_entry *, void *data), void *data);
+
 /* refactor todo list 
  * 
- * TODO reintroduce the nreloaders variable
+ * TODO reintroduce the nreloads variable
  * TODO used entry when adding it to file cache
  * TODO do ttl stuff
  * TODO do cache place stuff
  * TODO do cleaning / garbage collection / pruning
  * TODO handle return codes in get/put
  * TODO add bit marking
- * TODO port shm_api
- * TODO port session_handler
- * TODO port content_cache
  * TODO handle filename collisions
  */
 

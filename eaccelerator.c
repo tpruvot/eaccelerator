@@ -220,9 +220,9 @@ void* eaccelerator_malloc2(size_t size TSRMLS_DC) {
 
 /* called after succesful compilation, from eaccelerator_compile file */
 /* Adds the data from the compilation of the script to the cache */
-static int eaccelerator_store(char* key, struct stat *buf, int nreloads,
-                         zend_op_array* op_array,
-                         Bucket* f, Bucket *c TSRMLS_DC) {
+static int eaccelerator_store(char* key, struct stat *buf,
+												zend_op_array* op_array,
+                        Bucket* f, Bucket *c TSRMLS_DC) {
 	ea_cache_entry *script;
 
 	int len = strlen(key);
@@ -265,7 +265,6 @@ static int eaccelerator_store(char* key, struct stat *buf, int nreloads,
 		script->ts = EAG(req_start);
 		script->filesize = buf->st_size;
 		script->size = size;
-		script->nreloads = nreloads;
 		script->alloc = (use_shm == 1) ? ea_shared_mem : ea_emalloc;
 
 		EACCELERATOR_PROTECT();
@@ -284,7 +283,7 @@ static int eaccelerator_store(char* key, struct stat *buf, int nreloads,
 /* Try to restore a file from the cache. If the file isn't found in memory, the 
    the disk cache is checked */
 static zend_op_array* eaccelerator_restore(char *realname, struct stat *buf,
-                                      int *nreloads, time_t compile_time TSRMLS_DC) {
+                                      time_t compile_time TSRMLS_DC) {
 	ea_cache_entry *script;
 	zend_op_array *op_array = NULL;
 
@@ -295,10 +294,12 @@ static zend_op_array* eaccelerator_restore(char *realname, struct stat *buf,
 		op_array = restore_op_array(NULL, script->op_array TSRMLS_CC);
 		if (op_array != NULL) {
 			ea_fc_entry *e;
+
 			ea_used_entry *used = emalloc(sizeof(ea_used_entry));
 			used->entry = script;
 			used->next = (ea_used_entry*)EAG(used_entries);
 			EAG(used_entries) = (void*)used;
+
 			EAG(mem) = op_array->filename;
 			/* only restore the classes and functions when we restore this script 
 			 * for the first time. 
@@ -605,7 +606,6 @@ ZEND_DLEXPORT zend_op_array* eaccelerator_compile_file(zend_file_handle *file_ha
   zend_op_array *t;
   struct stat buf;
   char  realname[MAXPATHLEN];
-  int   nreloads;
   int stat_result = 0;
 #ifdef DEBUG
   struct timeval tv_start;
@@ -650,7 +650,7 @@ ZEND_DLEXPORT zend_op_array* eaccelerator_compile_file(zend_file_handle *file_ha
 		ea_debug_log("EACCELERATOR: Warning: \"%s\" is cached but it's mtime is in the future.\n", file_handle->filename);
   }
 
-  t = eaccelerator_restore(realname, &buf, &nreloads, EAG(req_start) TSRMLS_CC);
+  t = eaccelerator_restore(realname, &buf, EAG(req_start) TSRMLS_CC);
 
 // segv74: really cheap work around to auto_global problem.
 //         it makes just in time to every time.
@@ -762,11 +762,11 @@ ZEND_DLEXPORT zend_op_array* eaccelerator_compile_file(zend_file_handle *file_ha
       function_table_tail = function_table_tail ? function_table_tail->pListNext : CG(function_table)->pListHead;
       class_table_tail = class_table_tail ? class_table_tail->pListNext : CG(class_table)->pListHead;
 
-      if (eaccelerator_store(file_handle->opened_path, &buf, nreloads, t, function_table_tail, class_table_tail TSRMLS_CC)) {
+      if (eaccelerator_store(file_handle->opened_path, &buf, t, function_table_tail, class_table_tail TSRMLS_CC)) {
 #ifdef DEBUG
-        ea_debug_log("[%d] EACCELERATOR %s: \"%s\"\n", getpid(), (nreloads == 1) ? "cached" : "re-cached", file_handle->opened_path);
+        ea_debug_log("[%d] EACCELERATOR cached: \"%s\"\n", getpid(), file_handle->opened_path);
 #else
-        ea_debug_log("EACCELERATOR %s: \"%s\"\n", (nreloads == 1) ? "cached" : "re-cached", file_handle->opened_path);
+        ea_debug_log("EACCELERATOR cached: \"%s\"\n", file_handle->opened_path);
 #endif
       } else {
 #ifdef DEBUG
@@ -920,10 +920,8 @@ PHP_MINFO_FUNCTION(eaccelerator) {
     php_info_print_table_row(2, "Memory Available", s);
     format_size(s, ea_mm_instance->total - available, 1);
     php_info_print_table_row(2, "Memory Allocated", s);
-    snprintf(s, 32, "%u", 0);
+    snprintf(s, 32, "%u", script_cache->ht->elements);
     php_info_print_table_row(2, "Cached Scripts", s);
-    snprintf(s, 32, "%u", 0);
-    php_info_print_table_row(2, "Removed Scripts", s);
     EACCELERATOR_UNPROTECT();
     EACCELERATOR_UNLOCK_RD();
     EACCELERATOR_PROTECT();
@@ -1021,6 +1019,7 @@ static void eaccelerator_clean_request(TSRMLS_D)
 				if (p->entry->ref_cnt <= 0) {
 					DBG(ea_debug_printf, (EA_DEBUG, "Removing %s with refcount 0\n", p->entry->key));
 					EA_FREE_CACHE_ENTRY_NO_LOCK(p->entry);
+					p->entry = NULL;
 				}
 				p = p->next;
 			}
@@ -1036,36 +1035,36 @@ static void eaccelerator_clean_request(TSRMLS_D)
 #ifdef ZTS
 					if ((*p)->pid == pid && (*p)->thread == thread) {
 #else
-						if ((*p)->pid == pid) {
+					if ((*p)->pid == pid) {
 #endif
-							ea_lock_entry* x = *p;
-							*p = (*p)->next;
-							eaccelerator_free_nolock(x);
-						} else {
-							p = &(*p)->next;
-						}
+						ea_lock_entry* x = *p;
+						*p = (*p)->next;
+						eaccelerator_free_nolock(x);
+					} else {
+						p = &(*p)->next;
 					}
 				}
-				EACCELERATOR_UNLOCK_RW(); /** UNLOCK **/
 			}
-
-			EACCELERATOR_PROTECT();
-
-			// free the used_entry structures (maybe some refcounts have become zero)
-			p = (ea_used_entry*)EAG(used_entries);
-			while (p != NULL) {
-				r = p;
-				p = p->next;
-				if (r->entry != NULL && r->entry->ref_cnt <= 0) {
-					DBG(ea_debug_printf, (EA_DEBUG, "Removing %s with refcount 0\n", r->entry->key));
-					EA_FREE_CACHE_ENTRY(r->entry);
-				}
-				efree(r);
-			}
+			EACCELERATOR_UNLOCK_RW(); /** UNLOCK **/
 		}
-		EAG(used_entries) = NULL;
-		EAG(in_request) = 0;
+
+		EACCELERATOR_PROTECT();
+
+		// free the used_entry structures (maybe some refcounts have become zero)
+		p = (ea_used_entry*)EAG(used_entries);
+		while (p != NULL) {
+			r = p;
+			p = p->next;
+			if (r->entry != NULL && r->entry->ref_cnt <= 0) {
+				DBG(ea_debug_printf, (EA_DEBUG, "Removing %s with refcount 0\n", r->entry->key));
+				EA_FREE_CACHE_ENTRY(r->entry);
+			}
+			efree(r);
+		}
 	}
+	EAG(used_entries) = NULL;
+	EAG(in_request) = 0;
+}
 
 /* signal handlers */
 #ifdef WITH_EACCELERATOR_CRASH_DETECTION
