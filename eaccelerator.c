@@ -233,7 +233,6 @@ static int eaccelerator_store(char* key, struct stat *buf,
 	script = ea_cache_alloc_entry(size);
 
 	if (script) {
-		EAG(mem) = (void *)script;
 		eaccelerator_store_int(script, key, len, op_array, f, c TSRMLS_CC);
 
 		script->mtime = buf->st_mtime;
@@ -246,7 +245,7 @@ static int eaccelerator_store(char* key, struct stat *buf,
 
 		ret = ea_cache_put(EAG(cache_request), script);
 
-		mm_check_mem(EAG(mem));
+		mm_check_mem((void *)script);
 
 		if (script->alloc == ea_emalloc) {
 			efree(script);
