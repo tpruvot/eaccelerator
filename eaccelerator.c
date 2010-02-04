@@ -271,20 +271,18 @@ static zend_op_array* eaccelerator_restore(char *realname, struct stat *buf,
 		if (op_array != NULL) {
 			ea_fc_entry *e;
 
-			EAG(mem) = op_array->filename;
 			/* only restore the classes and functions when we restore this script 
 			 * for the first time. 
 			 */
 			if (!zend_hash_exists(&EAG(restored), script->key, strlen(script->key))) {
 				for (e = script->c_head; e!=NULL; e = e->next) {
-					restore_class(e TSRMLS_CC);
+					restore_class(realname, e TSRMLS_CC);
 				}
 				for (e = script->f_head; e!=NULL; e = e->next) {
-					restore_function(e TSRMLS_CC);
+					restore_function(realname, e TSRMLS_CC);
 				}
 				zend_hash_add(&EAG(restored), script->key, strlen(script->key), NULL, 0, NULL);  
 			}
-			EAG(mem) = script->key;
 		}
 #ifdef ZEND_COMPILE_DELAYED_BINDING
 		zend_do_delayed_early_binding(op_array TSRMLS_CC);
@@ -643,7 +641,7 @@ ZEND_DLEXPORT zend_op_array* eaccelerator_compile_file(zend_file_handle *file_ha
     zend_llist_add_element(&CG(open_files), file_handle);
     if (file_handle->opened_path == NULL && file_handle->type != ZEND_HANDLE_STREAM) {
       file_handle->handle.stream.handle = (void*)1;
-      file_handle->opened_path = EAG(mem);	/* EAG(mem) = p->realfilename from eaccelerator_restore here */
+      file_handle->opened_path = realname;
     }
 
     DBG(ea_debug_printf, (EA_TEST_PERFORMANCE, "\t[%d] compile_file: restored (%ld)\n", getpid(), ea_debug_elapsed_time(&tv_start)));

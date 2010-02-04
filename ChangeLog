@@ -3,7 +3,7 @@
 		* First very early work to rewrite the caching code.
 		* Remove some leftovers from the lock api remotes/origin/master
 		* Fix a small compile warning in a printf function
-		* Get rid of some more EAG(mem) globals
+		* Get rid of all EAG(mem) globals
 
 2010-02-03	Bart Vanbrabant <bart at vanbrabant.eu>
 

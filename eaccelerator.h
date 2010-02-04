@@ -369,7 +369,6 @@ zend_bool compiler;
 zend_bool in_request;
 char *cache_dir;
 char *ea_log_file;
-char *mem;
 char *allowed_admin_path;
 time_t req_start;			/* time of request start (set in RINIT) */
 HashTable strings;

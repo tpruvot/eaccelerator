@@ -35,8 +35,8 @@ void fixup_zval(char *base, zval *z TSRMLS_DC);
 void eaccelerator_fixup(ea_cache_entry *p, void *base_pointer TSRMLS_DC);
 
 void restore_zval(zval *zv TSRMLS_DC);
-void restore_class(ea_fc_entry *p TSRMLS_DC);
-void restore_function(ea_fc_entry *p TSRMLS_DC);
+void restore_class(char *filename, ea_fc_entry *p TSRMLS_DC);
+void restore_function(char *filename, ea_fc_entry *p TSRMLS_DC);
 zend_op_array* restore_op_array(zend_op_array *to, ea_op_array *from TSRMLS_DC);
 
 dtor_func_t get_zend_destroy_property_info(TSRMLS_D);

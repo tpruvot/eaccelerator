@@ -782,7 +782,7 @@ static zend_class_entry *restore_class_entry(zend_class_entry * to, ea_class_ent
     return to;
 }
 
-void restore_function(ea_fc_entry * p TSRMLS_DC)
+void restore_function(char *filename, ea_fc_entry * p TSRMLS_DC)
 {
     zend_op_array op_array;
 
@@ -792,7 +792,7 @@ void restore_function(ea_fc_entry * p TSRMLS_DC)
     if (restore_op_array(&op_array, (ea_op_array *) p->fc TSRMLS_CC) != NULL) {
         if (zend_hash_add(CG(function_table), p->htabkey, p->htablen, &op_array, sizeof(zend_op_array), NULL) == FAILURE) {
             CG(in_compilation) = 1;
-            CG(compiled_filename) = EAG(mem);
+            CG(compiled_filename) = filename;
             CG(zend_lineno) = op_array.line_start;
             zend_error(E_ERROR, "Cannot redeclare %s()", p->htabkey);
         }
@@ -802,7 +802,7 @@ void restore_function(ea_fc_entry * p TSRMLS_DC)
 /*
  * Class handling.
  */
-void restore_class(ea_fc_entry * p TSRMLS_DC)
+void restore_class(char *filename, ea_fc_entry * p TSRMLS_DC)
 {
     zend_class_entry *ce;
 
@@ -815,7 +815,7 @@ void restore_class(ea_fc_entry * p TSRMLS_DC)
         if (zend_hash_add(CG(class_table), p->htabkey, p->htablen, &ce, sizeof(zend_class_entry *), NULL) == FAILURE)
         {
             CG(in_compilation) = 1;
-            CG(compiled_filename) = EAG(mem);
+            CG(compiled_filename) = filename;
             CG(zend_lineno) = ce->line_start;
             zend_error(E_ERROR, "Cannot redeclare class %s", p->htabkey);
         }
