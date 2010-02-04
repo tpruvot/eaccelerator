@@ -456,7 +456,7 @@ zend_op_array *restore_op_array(zend_op_array * to, ea_op_array * from TSRMLS_DC
                 to->scope != NULL) {
             DBG(ea_debug_pad, (EA_DEBUG TSRMLS_CC));
             DBG(ea_debug_printf, (EA_DEBUG, "[%d]                   found '%s' in hash\n", getpid(), from->scope_name));
-            DBG(ea_debug_printf, (EA_DEBUG, "name=%s :: to->scope is 0x%x", to->function_name, (unsigned int) to->scope));
+            DBG(ea_debug_printf, (EA_DEBUG, "name=%s :: to->scope is 0x%p", to->function_name, to->scope));
             to->scope = *(zend_class_entry **) to->scope;
         } else {
             DBG(ea_debug_pad, (EA_DEBUG TSRMLS_CC));
