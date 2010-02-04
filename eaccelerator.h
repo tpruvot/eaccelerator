@@ -166,11 +166,11 @@
 #define EACCELERATOR_UNBLOCK_INTERRUPTIONS() HANDLE_UNBLOCK_INTERRUPTIONS()
 
 #define EACCELERATOR_HASH_LEVEL 2
-#define EA_HASH_SIZE      512
+#define EA_HASH_SIZE            512
 
 #define EA_HASH_MAX       (EA_HASH_SIZE-1)
 
-#define eaccelerator_malloc(size)        mm_malloc_lock(ea_mm_instance->mm, size)
+#define eaccelerator_malloc(size)        mm_malloc_lock(ea_mm_instance->mm, size);
 #define eaccelerator_free(x)             mm_free_lock(ea_mm_instance->mm, x)
 #define eaccelerator_malloc_nolock(size) mm_malloc_nolock(ea_mm_instance->mm, size)
 #define eaccelerator_free_nolock(x)      mm_free_nolock(ea_mm_instance->mm, x)
@@ -275,11 +275,6 @@ typedef struct _ea_fc_entry {
 	char htabkey[1];			/* must be last element */
 } ea_fc_entry;
 
-typedef enum ea_alloc_place {
-    ea_shared_mem,
-    ea_emalloc,
-    ea_malloc
-} ea_alloc_place;
 
 #define EA_FREE_CACHE_ENTRY_NO_LOCK(p) { if (p->alloc == ea_shared_mem)\
     eaccelerator_free_nolock(p); else if (p->alloc == ea_emalloc) efree(p);\
@@ -360,12 +355,13 @@ struct ea_pattern_t {
   char *pattern;
 };
 
+#include "ea_cache.h"
+
 /*
  * Globals (different for each process/thread)
  */
 ZEND_BEGIN_MODULE_GLOBALS (eaccelerator)
-void *used_entries;			/* list of files which are used     */
-					/* by process/thread                */
+ea_cache_request_t *cache_request;  /* per thread structure for the script cache */
 zend_bool enabled;
 zend_bool optimizer_enabled;
 zend_bool check_mtime_enabled;

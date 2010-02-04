@@ -30,6 +30,14 @@
 
 #include "eaccelerator.h"
 
+//#define EA_CACHE_DYN_HT
+
+typedef enum ea_alloc_place {
+    ea_shared_mem,
+    ea_emalloc,
+    ea_malloc
+} ea_alloc_place;
+
 /*
  * An entry in the cache
  */
@@ -54,10 +62,10 @@ typedef struct ea_cache_entry {
 /*
  * Linked list of ea_cache_entry which are used by process/thread
  */
-typedef struct _ea_used_entry {
-    struct _ea_used_entry *next;
+typedef struct _ea_used_entry_t {
+    struct _ea_used_entry_t *next;
     ea_cache_entry *entry;
-} ea_used_entry;
+} ea_used_entry_t;
 
 /*
  * Hashtable structure
@@ -77,6 +85,14 @@ typedef struct ea_cache_t {
     int (* compare_func) (ea_cache_entry *, void *);
     ea_cache_place place;
 } ea_cache_t;
+
+/*
+ * Variables that are thread/process specific for the cache
+ */
+typedef struct _ea_cache_request_t {
+	ea_cache_t *cache;
+	ea_used_entry_t *used_entries;
+} ea_cache_request_t;
 
 /*
  * File header to write in cache files
@@ -102,22 +118,24 @@ inline int header_check(ea_file_header_t *hdr); //FIXME
  * doesn't increment the refcount so it means when you use the entry and put 
  * it in the used list you need to increment the refcount!!!!
  * 
- * @param ea_cache_t A pointer to the structure that defines the cache to store the entry in
+ * @param ea_cache_request_t A pointer to the request structure  linked with
+ *		the cache to get the entry from
  * @parma ea_cache_entry A pointer to the entry that needs to be stored in the cache
  */
-int ea_cache_put(ea_cache_t *cache, ea_cache_entry *entry);
+int ea_cache_put(ea_cache_request_t *request, ea_cache_entry *entry);
 
 /**
  * Get an entry from the cache. When the function returns it will increment the 
  * refcount of the entry. Make sure you decrement the refcount when a request is 
  * done otherwise the entry will live forever.
  * 
- * @param ea_cache_t A pointer to the structure that defines the cache to get teh entry from
+ * @param ea_cache_request_t A pointer to the request structure  linked with
+ *		the cache to get the entry from
  * @param char A pointer to the string to lookup the entry in the cache
  * @param void A pointer to the extra data needed by the compare function
  * @return The entry from the cache or null if it's not found
  */
-ea_cache_entry *ea_cache_get(ea_cache_t *cache, const char *key, void *data);
+ea_cache_entry *ea_cache_get(ea_cache_request_t *request, const char *key, void *data);
 
 /**
  * Initialise a new cache with the given size as the number of initial buckets.
@@ -131,6 +149,11 @@ ea_cache_t *ea_cache_create(size_t size);
  * Initialise the cache
  */
 void ea_cache_init();
+
+/**
+ * Initialise the request structure for the current request.
+ */
+ea_cache_request_t *ea_cache_rinit(ea_cache_t *cache);
 
 /**
  * Walk through all the cached scripts in that are in memory.
@@ -147,6 +170,11 @@ void ea_cache_walk_ht(ea_cache_t *cache, void (* format_func) (ea_cache_entry *,
 ea_cache_entry* ea_cache_hashtable_get(ea_hashtable_t *ht, const char *key, 
 		void *data, int (* compare_func) (ea_cache_entry *, void *));
 
+/**
+ * Allocate and initialise a cache entry. If the alloc type of the entry is
+ * ea_shared_mem then the shared memory region needs to be protected again.
+ */
+ea_cache_entry *ea_cache_alloc_entry(size_t size);
 
 /* refactor todo list 
  * 
@@ -154,10 +182,11 @@ ea_cache_entry* ea_cache_hashtable_get(ea_hashtable_t *ht, const char *key,
  * TODO used entry when adding it to file cache
  * TODO do ttl stuff
  * TODO do cache place stuff
- * TODO do cleaning / garbage collection / pruning
+ * TODO do cleaning / garbage collection / pruning / malloc2
  * TODO handle return codes in get/put
  * TODO add bit marking
  * TODO handle filename collisions
+ * limit access to cache and ht outside ea_cache
  */
 
 #endif /*EA_CACHE_H*/

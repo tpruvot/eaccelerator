@@ -92,7 +92,7 @@ zend_extension* ZendOptimizer = NULL;
 static HashTable ea_global_function_table;
 static HashTable ea_global_class_table;
 
-ea_cache_t *script_cache = NULL;
+ea_cache_t *ea_script_cache = NULL;
 
 /* pointer to the properties_info hashtable destructor */
 extern dtor_func_t properties_info_dtor;
@@ -169,11 +169,11 @@ static int init_mm(TSRMLS_D) {
   ea_mm_instance->optimizer_enabled = 1;
   ea_mm_instance->last_prune = time(NULL);	/* this time() call is harmless since this is init phase */
 
-	script_cache = ea_cache_create(EA_HASH_SIZE);
-	if (script_cache == NULL) {
+	ea_script_cache = ea_cache_create(EA_HASH_SIZE);
+	if (ea_script_cache == NULL) {
 		return FAILURE; 
 	}
-  script_cache->compare_func = is_valid_script;
+  ea_script_cache->compare_func = is_valid_script;
 
   EACCELERATOR_PROTECT();
   return SUCCESS;
@@ -204,19 +204,6 @@ static void shutdown_mm(TSRMLS_D) {
   }
 }
 
-/* Allocate a new cache chunk */
-void* eaccelerator_malloc2(size_t size TSRMLS_DC) {
-  void *p = NULL;
-
-  if (ea_shm_prune_period > 0) {
-    if (EAG(req_start) - ea_mm_instance->last_prune > ea_shm_prune_period) {
-//      eaccelerator_prune(EAG(req_start));
-      p = eaccelerator_malloc(size);
-    }
-  }
-  return p;
-}
-
 /* called after succesful compilation, from eaccelerator_compile file */
 /* Adds the data from the compilation of the script to the cache */
 static int eaccelerator_store(char* key, struct stat *buf,
@@ -243,21 +230,10 @@ static int eaccelerator_store(char* key, struct stat *buf,
 	DBG(ea_debug_pad, (EA_DEBUG TSRMLS_CC));
 	DBG(ea_debug_printf, (EA_DEBUG, "[%d] eaccelerator_store:  returned %d, mm=%x\n", getpid(), size, ea_mm_instance->mm));
 
-	EACCELERATOR_UNPROTECT();
-	EAG(mem) = eaccelerator_malloc(size);
-	if (EAG(mem) == NULL) {
-		EAG(mem) = eaccelerator_malloc2(size TSRMLS_CC);
-	}
-	if (!EAG(mem) && !ea_scripts_shm_only) {
-		EACCELERATOR_PROTECT();
-		EAG(mem) = emalloc(size);
-		use_shm = 0;
-	}
+	script = ea_cache_alloc_entry(size);
 
-	if (EAG(mem)) {
-		memset(EAG(mem), 0, size);
-		script = (ea_cache_entry *)EAG(mem);
-
+	if (script) {
+		EAG(mem) = (void *)script;
 		eaccelerator_store_int(script, key, len, op_array, f, c TSRMLS_CC);
 
 		script->mtime = buf->st_mtime;
@@ -268,12 +244,14 @@ static int eaccelerator_store(char* key, struct stat *buf,
 
 		EACCELERATOR_PROTECT();
 
-		ret = ea_cache_put(script_cache, script);
+		ret = ea_cache_put(EAG(cache_request), script);
 
 		mm_check_mem(EAG(mem));
 
 		if (script->alloc == ea_emalloc) {
-			efree(script);   
+			efree(script);
+		} else {
+			EACCELERATOR_PROTECT();
 		}
 	}
 	return ret;
@@ -286,18 +264,13 @@ static zend_op_array* eaccelerator_restore(char *realname, struct stat *buf,
 	ea_cache_entry *script;
 	zend_op_array *op_array = NULL;
 
-  script = ea_cache_get(script_cache, realname, (void *)buf);
+  script = ea_cache_get(EAG(cache_request), realname, (void *)buf);
 
 	if (script != NULL && script->op_array != NULL) {
 		EAG(class_entry) = NULL;
 		op_array = restore_op_array(NULL, script->op_array TSRMLS_CC);
 		if (op_array != NULL) {
 			ea_fc_entry *e;
-
-			ea_used_entry *used = emalloc(sizeof(ea_used_entry));
-			used->entry = script;
-			used->next = (ea_used_entry*)EAG(used_entries);
-			EAG(used_entries) = (void*)used;
 
 			EAG(mem) = op_array->filename;
 			/* only restore the classes and functions when we restore this script 
@@ -919,7 +892,7 @@ PHP_MINFO_FUNCTION(eaccelerator) {
     php_info_print_table_row(2, "Memory Available", s);
     format_size(s, ea_mm_instance->total - available, 1);
     php_info_print_table_row(2, "Memory Allocated", s);
-    snprintf(s, 32, "%u", script_cache->ht->elements);
+    snprintf(s, 32, "%u", ea_script_cache->ht->elements);
     php_info_print_table_row(2, "Cached Scripts", s);
     EACCELERATOR_UNPROTECT();
     EACCELERATOR_UNLOCK_RD();
@@ -1000,49 +973,6 @@ STD_PHP_INI_ENTRY("eaccelerator.cache_dir",      "/tmp/eaccelerator", PHP_INI_SY
 PHP_INI_ENTRY("eaccelerator.filter",             "",  PHP_INI_ALL, eaccelerator_filter)
 PHP_INI_END()
 
-// clean up this request
-static void eaccelerator_clean_request(TSRMLS_D) 
-{
-	ea_used_entry *p, *r;
-
-	if (ea_mm_instance != NULL) {
-		EACCELERATOR_UNPROTECT();
-
-		p = (ea_used_entry*)EAG(used_entries);
-		if (p != NULL) {
-			EACCELERATOR_LOCK_RW(); /** LOCK **/
-
-			// decrement the reference counts from used cache entries for this request
-			while (p != NULL) {
-				p->entry->ref_cnt--;
-				if (p->entry->ref_cnt <= 0) {
-					DBG(ea_debug_printf, (EA_DEBUG, "Removing %s with refcount 0\n", p->entry->key));
-					EA_FREE_CACHE_ENTRY_NO_LOCK(p->entry);
-					p->entry = NULL;
-				}
-				p = p->next;
-			}
-			EACCELERATOR_UNLOCK_RW(); /** UNLOCK **/
-		}
-
-		EACCELERATOR_PROTECT();
-
-		// free the used_entry structures (maybe some refcounts have become zero)
-		p = (ea_used_entry*)EAG(used_entries);
-		while (p != NULL) {
-			r = p;
-			p = p->next;
-			if (r->entry != NULL && r->entry->ref_cnt <= 0) {
-				DBG(ea_debug_printf, (EA_DEBUG, "Removing %s with refcount 0\n", r->entry->key));
-				EA_FREE_CACHE_ENTRY(r->entry);
-			}
-			efree(r);
-		}
-	}
-	EAG(used_entries) = NULL;
-	EAG(in_request) = 0;
-}
-
 /* signal handlers */
 #ifdef WITH_EACCELERATOR_CRASH_DETECTION
 static void eaccelerator_crash_handler(int dummy) {
@@ -1086,7 +1016,7 @@ static void eaccelerator_crash_handler(int dummy) {
     signal(SIGABRT, SIG_DFL);
   }
 #endif
-  eaccelerator_clean_request(TSRMLS_C);
+  ea_cache_rshutdown(EAG(cache_request));
 
   loctime = localtime(&EAG(req_start));
 
@@ -1111,7 +1041,6 @@ static void eaccelerator_crash_handler(int dummy) {
 
 static void eaccelerator_init_globals(zend_eaccelerator_globals *eag)
 {
-	eag->used_entries = NULL;
 	eag->enabled = 1;
 	eag->cache_dir = NULL;
 	eag->optimizer_enabled = 1;
@@ -1252,8 +1181,9 @@ PHP_RINIT_FUNCTION(eaccelerator)
 	DBG(ea_debug_printf, (EA_DEBUG, "[%d] Enter RINIT\n",getpid()));
 	DBG(ea_debug_put, (EA_PROFILE_OPCODES, "\n========================================\n"));
 
+	EAG(cache_request) = ea_cache_rinit(ea_script_cache);
+
 	EAG(in_request) = 1;
-	EAG(used_entries) = NULL;
 	EAG(compiler) = 0;
 	EAG(refcount_helper) = 1;
 	EAG(req_start) = sapi_get_request_time(TSRMLS_C);	/* record request start time for later use */
@@ -1265,6 +1195,7 @@ PHP_RINIT_FUNCTION(eaccelerator)
 	EAG(profile_level) = 0;
 #endif
 
+/*
 #ifdef WITH_EACCELERATOR_CRASH_DETECTION
 #ifdef SIGSEGV
 	EAG(original_sigsegv_handler) = signal(SIGSEGV, eaccelerator_crash_handler);
@@ -1281,7 +1212,7 @@ PHP_RINIT_FUNCTION(eaccelerator)
 #ifdef SIGABRT
 	EAG(original_sigabrt_handler) = signal(SIGABRT, eaccelerator_crash_handler);
 #endif
-#endif
+#endif*/
 
 	DBG(ea_debug_printf, (EA_DEBUG, "[%d] Leave RINIT\n",getpid()));
 	
@@ -1332,7 +1263,8 @@ PHP_RSHUTDOWN_FUNCTION(eaccelerator)
 #endif
 #endif
 	DBG(ea_debug_printf, (EA_DEBUG, "[%d] Enter RSHUTDOWN\n",getpid()));
-	eaccelerator_clean_request(TSRMLS_C);
+	ea_cache_rshutdown(EAG(cache_request));
+	EAG(in_request) = 0;
 	DBG(ea_debug_printf, (EA_DEBUG, "[%d] Leave RSHUTDOWN\n",getpid()));
 	return SUCCESS;
 }
@@ -1543,19 +1475,6 @@ static int eaccelerator_last_startup(zend_extension *extension) {
   }
   return ret;
 }
-
-/*
-static int eaccelerator_ioncube_startup(zend_extension *extension) {
-  int ret;
-  zend_extension* last_ext = (zend_extension*)zend_extensions.tail->data;
-  extension->startup = last_startup;
-  ret = extension->startup(extension);
-  last_startup = last_ext->startup;
-  last_ext->startup = eaccelerator_last_startup;
-  return ret;
-}
-*/
-
 
 ZEND_DLEXPORT int eaccelerator_zend_startup(zend_extension *extension) {
  ea_is_zend_extension = 1;

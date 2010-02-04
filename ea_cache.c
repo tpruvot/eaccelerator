@@ -275,7 +275,8 @@ inline void header_init(ea_file_header_t *hdr)
     hdr->php_version[1] = binary_php_version[1];
 }
 
-static ea_cache_entry* ea_cache_file_get(const char *key, void *data, int (* compare_func) (ea_cache_entry *, void *))
+static ea_cache_entry* ea_cache_file_get(const char *key, void *data, 
+		int (* compare_func) (ea_cache_entry *, void *))
 {
     int fd;
     char file[MAXPATHLEN];
@@ -316,7 +317,6 @@ static ea_cache_entry* ea_cache_file_get(const char *key, void *data, int (* com
 
     // allocate memory for the script
     script = eaccelerator_malloc_nolock(header.size);
-    script->alloc = ea_shared_mem; 
     // TODO: if there isn't any space, do some garbage collection
     if (script == NULL) { // we don't have memory available, use emalloc
         script = emalloc(header.size);
@@ -327,7 +327,9 @@ static ea_cache_entry* ea_cache_file_get(const char *key, void *data, int (* com
             return NULL;
         }
         script->alloc = ea_emalloc;
-    }
+    } else {
+		script->alloc = ea_shared_mem;
+	}
 
     // read the script from disk
     if (read(fd, script, header.size) != header.size || script->size != header.size
@@ -438,8 +440,8 @@ static ea_hashtable_t* ea_cache_hashtable_init(size_t start_size)
     ea_hashtable_t *table;
     
     // allocate table
-    if ((table = eaccelerator_malloc(sizeof(ea_hashtable_t))) == NULL && 
-            (table = eaccelerator_malloc2(sizeof(ea_hashtable_t))) == NULL) {
+	table = eaccelerator_malloc(sizeof(ea_hashtable_t));
+    if (table == NULL) {
         DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Unable to allocate space for hashtable\n"));
         return NULL;
     }
@@ -449,18 +451,19 @@ static ea_hashtable_t* ea_cache_hashtable_init(size_t start_size)
     
     // allocate storage for all slots
     table->entries = eaccelerator_malloc(sizeof(ea_cache_entry*) * start_size);
-    if (table->entries == NULL) {
-        table->entries = eaccelerator_malloc2(sizeof(ea_cache_entry*) * start_size);
-        if (table->entries == NULL) {
-            eaccelerator_free(table);
-            DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Unable to allocate space for hashtable\n"));
-            return NULL;
-        }
-    }
+	if (table->entries == NULL) {
+		eaccelerator_free(table);
+		DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Unable to allocate space for hashtable\n"));
+		return NULL;
+	}
     memset(table->entries, 0, sizeof(ea_cache_entry*) * start_size);
     
     // when the table reaches this number of elements it needs to be resized
     table->max_load = (size_t)(start_size * EA_HASHTABLE_LOAD_FACTOR);
+
+	DBG(ea_debug_printf, (EA_DEBUG_CACHE, 
+		"Created hashtable with %d buckets, will resize on %d buckets\n",
+		table->size, table->max_load));
     
     return table;
 }
@@ -469,7 +472,7 @@ static ea_hashtable_t* ea_cache_hashtable_init(size_t start_size)
 static void ea_cache_hashtable_grow(ea_hashtable_t *ht)
 {
     ea_cache_entry **new_entries;
-    ea_cache_entry *p;
+    ea_cache_entry *p, *q;
     size_t new_size;
     unsigned int i, index;
     
@@ -479,7 +482,7 @@ static void ea_cache_hashtable_grow(ea_hashtable_t *ht)
     // allocate storage for all slots
     new_entries = eaccelerator_malloc_nolock(sizeof(ea_cache_entry*) * new_size);
     if (new_entries == NULL) {
-        /* 
+        /* TODO
          * growing the hashtable can only be done while it's locked. For this we
          * use the nolock free and malloc versions. It's possible we don't have enough
          * memory available to allocate a new hashtable, we can't call gc or prune
@@ -488,18 +491,25 @@ static void ea_cache_hashtable_grow(ea_hashtable_t *ht)
          * free enough memory to grow the hashtable, if not this function will be called
          * on every add but it will never grow.
          */
+		DBG(ea_debug_printf, (EA_DEBUG_CACHE, 
+			"Unable to grow the hashtable. Allocating %d bytes failed\n", sizeof(ea_cache_entry*) * new_size));
         return;
     }
     memset(new_entries, 0, sizeof(ea_cache_entry) * new_size);
     
     // rehash the table
     for (i = 0; i < ht->size; ++i) {
-        while ((p = ht->entries[i]) != NULL) {
-            //TODO: only copy entries when they are all valid
-            ht->entries[i] = p->next;
-            index = p->hv & (new_size - 1);
+		p = ht->entries[i];
+        while (p != NULL) {
+            //TODO: only copy entries when they are all valid 
+			q = p->next;
+
+			// add the entry to the new hash table
+			index = p->hv & (new_size - 1);
             p->next = new_entries[index];
             new_entries[index] = p;
+
+			p = q;
         }
     }
     
@@ -510,8 +520,6 @@ static void ea_cache_hashtable_grow(ea_hashtable_t *ht)
     ht->max_load = (size_t)(new_size * EA_HASHTABLE_LOAD_FACTOR);
     
     DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Resized hashtable to %d\n", new_size));
-    
-    return;
 }
 
 ea_cache_entry* ea_cache_hashtable_get(ea_hashtable_t *ht, const char *key, 
@@ -590,10 +598,13 @@ static void ea_cache_hashtable_put(ea_hashtable_t *ht, ea_cache_entry *entry)
     entry->ref_cnt = 1;
     
     // when the hashtable load exceeds the loadfactor, resize it
-    if (++ht->elements >= ht->max_load) {
+	ht->elements++;
+#ifdef EA_CACHE_DYN_HT	
+    if (ht->elements >= ht->max_load) {
         // resize the table
         ea_cache_hashtable_grow(ht);
     }
+#endif
     
     // maybe we need to remove a value with the same key (replacing an old value)
     q = entry;
@@ -627,13 +638,13 @@ static int ea_cache_hashtable_prune(ea_hashtable_t *ht)
     
 }
 
-int ea_cache_put(ea_cache_t *cache, ea_cache_entry *entry)
+int ea_cache_put(ea_cache_request_t *request, ea_cache_entry *entry)
 {
     if (entry->alloc == ea_shared_mem) {
         EACCELERATOR_UNPROTECT();
         EACCELERATOR_LOCK_RW();
         
-        ea_cache_hashtable_put(cache->ht, entry);
+        ea_cache_hashtable_put(request->cache->ht, entry);
         
         DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Put %s in hashtable, refcount is %d\n", 
 			entry->key, entry->ref_cnt));
@@ -645,33 +656,55 @@ int ea_cache_put(ea_cache_t *cache, ea_cache_entry *entry)
     return ea_cache_file_put(entry);
 }
 
-ea_cache_entry *ea_cache_get(ea_cache_t *cache, const char *key, void *data)
+ea_cache_entry *ea_cache_get(ea_cache_request_t *request, const char *key, void *data)
 {
     ea_cache_entry *script = NULL;
+	ea_used_entry_t *used = NULL;
     
     EACCELERATOR_UNPROTECT();
     EACCELERATOR_LOCK_RW();
     
     // get it from shared memory
-    script = ea_cache_hashtable_get(cache->ht, key, data, cache->compare_func);
+    script = ea_cache_hashtable_get(request->cache->ht, key, data, 
+		request->cache->compare_func);
     
     if (script == NULL) { // it's not in memory, load it from disk
         // get a script from disk cache
-        script = ea_cache_file_get(key, data, cache->compare_func);
+        script = ea_cache_file_get(key, data, request->cache->compare_func);
 
         if (script != NULL) {
             if (script->alloc == ea_shared_mem) {
-                ea_cache_hashtable_put(cache->ht, script);
+                ea_cache_hashtable_put(request->cache->ht, script);
                 script->ref_cnt++;
             } else {
                 script->ref_cnt = 1;   
             }
         }
     }
+
+	if (script != NULL) {
+		// add it to the list of entries that are in use by this process
+		used = emalloc(sizeof(ea_used_entry_t));
+
+		if (used == NULL) {
+			script->ref_cnt--;
+
+			if (script->ref_cnt <= 0) {
+				EA_FREE_CACHE_ENTRY_NO_LOCK(script);
+				script = NULL;
+			}
+		}
     
-    EACCELERATOR_UNLOCK_RW();
+		if (used != NULL) {
+			used->entry = script;
+			used->next = request->used_entries;
+			request->used_entries = used;
+		}
+	}
+    
+	EACCELERATOR_UNLOCK_RW();
     EACCELERATOR_PROTECT();
-    
+
 #ifdef DEBUG
     if (script != NULL) {
         ea_debug_printf(EA_DEBUG_CACHE, "Found key '%s' with refcount %d\n", 
@@ -705,14 +738,14 @@ void ea_cache_walk_ht(ea_cache_t *cache,
 	EACCELERATOR_UNPROTECT();
 	EACCELERATOR_LOCK_RD();
 
-	ea_debug_printf(EA_DEBUG_CACHE, "Walking ht with %d buckets and %d elements\n", 
-			cache->ht->size, cache->ht->elements);
+	DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Walking ht with %d buckets and %d elements\n", 
+			cache->ht->size, cache->ht->elements));
 
 	for (i = 0; i < cache->ht->size; ++i) {
 		p = cache->ht->entries[i];
 		while (p != NULL) {
 			if (p != NULL && p == p->next) {
-				ea_debug_printf(EA_DEBUG_CACHE, "Stupid fuck, you made a loop in your HT!\n");
+				DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Stupid fuck, you made a loop in your HT!\n"));
 				return;
 			}
 			format_func(p, data);
@@ -722,6 +755,89 @@ void ea_cache_walk_ht(ea_cache_t *cache,
 
     EACCELERATOR_UNLOCK_RD();
     EACCELERATOR_PROTECT();
+}
+
+ea_cache_request_t *ea_cache_rinit(ea_cache_t *cache)
+{
+	ea_cache_request_t *request = NULL;
+
+	request = emalloc(sizeof(ea_cache_request_t));
+
+	if (request == NULL) {
+		DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Unable to allocate memory for request structure!\n"));
+		return NULL;
+	}
+
+	request->cache = cache;
+	request->used_entries = NULL;
+
+	return request;
+}
+
+void ea_cache_rshutdown(ea_cache_request_t *request) {
+	ea_used_entry_t *p, *r;
+
+	EACCELERATOR_UNPROTECT();
+
+	p = request->used_entries;
+
+	if (p != NULL) {
+		EACCELERATOR_LOCK_RW(); /** LOCK **/
+
+		// decrement the reference counts from used cache entries for this request
+		while (p != NULL) {
+			p->entry->ref_cnt--;
+			if (p->entry->ref_cnt <= 0) {
+				DBG(ea_debug_printf, (EA_DEBUG_CACHE,
+					"Removing %s with refcount 0\n", p->entry->key));
+				EA_FREE_CACHE_ENTRY_NO_LOCK(p->entry);
+				p->entry = NULL;
+			}
+			p = p->next;
+		}
+		EACCELERATOR_UNLOCK_RW(); /** UNLOCK **/
+	}
+
+	EACCELERATOR_PROTECT();
+
+	// free the used_entry structures (maybe some refcounts have become zero)
+	p = request->used_entries;
+	while (p != NULL) {
+		r = p;
+		p = p->next;
+		if (r->entry != NULL && r->entry->ref_cnt <= 0) {
+			// TODO possible race condition here
+			DBG(ea_debug_printf, 
+				(EA_DEBUG_CACHE, "Removing %s with refcount 0\n", r->entry->key));
+			EA_FREE_CACHE_ENTRY(r->entry);
+		}
+		efree(r);
+	}
+
+	efree(request);
+	request = NULL;
+}
+
+ea_cache_entry *ea_cache_alloc_entry(size_t size)
+{
+	ea_cache_entry *entry = NULL;
+
+	EACCELERATOR_UNPROTECT();
+	entry = eaccelerator_malloc(size);
+	if (entry == NULL) {
+		EACCELERATOR_PROTECT();
+		entry = emalloc(size);
+		if (entry == NULL) {
+			return NULL;
+		}
+		memset(entry, 0, size);
+		entry->alloc = ea_emalloc;
+    } else {
+		memset(entry, 0, size);
+		entry->alloc = ea_shared_mem;
+	}
+
+	return entry;
 }
 
 #endif /* HAVE_EACCELERATOR */

@@ -44,7 +44,7 @@
 #define NOT_ADMIN_WARNING "This script isn't in the allowed_admin_path setting!"
 
 extern eaccelerator_mm *ea_mm_instance;
-extern ea_cache_t *script_cache;
+extern ea_cache_t *ea_script_cache;
 
 /* for checking if shm_only storage */
 extern zend_bool ea_scripts_shm_only;
@@ -350,7 +350,7 @@ PHP_FUNCTION (eaccelerator_info)
 	add_assoc_long(return_value, "memorySize", ea_mm_instance->total);
 	add_assoc_long(return_value, "memoryAvailable", available);
 	add_assoc_long(return_value, "memoryAllocated", ea_mm_instance->total - available);
-	add_assoc_long(return_value, "cachedScripts", script_cache->ht->elements);
+	add_assoc_long(return_value, "cachedScripts", ea_script_cache->ht->elements);
 
 	return;
 }
@@ -390,7 +390,7 @@ PHP_FUNCTION(eaccelerator_cached_scripts)
 
     array_init(return_value);
 
-	ea_cache_walk_ht(script_cache, format_cache_entry, (void *)return_value);
+	ea_cache_walk_ht(ea_script_cache, format_cache_entry, (void *)return_value);
 }
 /* }}} */
 

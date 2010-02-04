@@ -33,7 +33,7 @@
 
 #ifdef WITH_EACCELERATOR_DISASSEMBLER
 
-extern ea_cache_t *script_cache;
+extern ea_cache_t *ea_script_cache;
 extern eaccelerator_mm *ea_mm_instance;
 
 #define LOOKUP(arr, index, max, ptr) if (index < max) { ptr = arr[index]; } else { ptr = "UNDEFINED (todo)"; };
@@ -523,7 +523,7 @@ static ea_cache_entry *get_cache_entry(const char *file) {
 		EACCELERATOR_LOCK_RW();
 		EACCELERATOR_PROTECT();
 
-		result = ea_cache_hashtable_get(script_cache->ht, file, NULL, NULL);
+		result = ea_cache_hashtable_get(ea_script_cache->ht, file, NULL, NULL);
 
 		EACCELERATOR_UNPROTECT();
 		EACCELERATOR_UNLOCK_RW();
