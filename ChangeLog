@@ -1,6 +1,7 @@
 2010-02-04  Bart Vanbrabant <bart at vanbrabant.eu>
 
 		* First very early work to rewrite the caching code.
+		* Remove some leftovers from the lock api remotes/origin/master
 
 2010-02-03	Bart Vanbrabant <bart at vanbrabant.eu>
 

@@ -289,18 +289,6 @@ typedef enum ea_alloc_place {
     EA_FREE_CACHE_ENTRY_NO_LOCK(p);\
     EACCELERATOR_UNLOCK_RW(); }
 
-/*
- * Linked list of locks
- */
-typedef struct _ea_lock_entry {
-	struct _ea_lock_entry *next;
-	pid_t pid;
-#ifdef ZTS
-	THREAD_T thread;
-#endif
-	char key[1];
-} ea_lock_entry;
-
 typedef struct {
 	MM *mm;
 	pid_t owner;
@@ -308,7 +296,6 @@ typedef struct {
 	zend_bool enabled;
 	zend_bool optimizer_enabled;
 	time_t last_prune;
-	ea_lock_entry *locks;
 } eaccelerator_mm;
 
 /*
@@ -355,9 +342,6 @@ extern zend_module_entry eaccelerator_module_entry;
 
 void format_size (char *s, unsigned int size, int legend);
 void eaccelerator_prune (time_t t);
-
-int eaccelerator_lock (const char *key, int key_len TSRMLS_DC);
-int eaccelerator_unlock (const char *key, int key_len TSRMLS_DC);
 
 void *eaccelerator_malloc2 (size_t size TSRMLS_DC);
 

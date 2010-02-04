@@ -167,7 +167,6 @@ static int init_mm(TSRMLS_D) {
   ea_mm_instance->total = total;
   ea_mm_instance->enabled = 1;
   ea_mm_instance->optimizer_enabled = 1;
-  ea_mm_instance->locks = NULL;
   ea_mm_instance->last_prune = time(NULL);	/* this time() call is harmless since this is init phase */
 
 	script_cache = ea_cache_create(EA_HASH_SIZE);
@@ -1001,7 +1000,7 @@ STD_PHP_INI_ENTRY("eaccelerator.cache_dir",      "/tmp/eaccelerator", PHP_INI_SY
 PHP_INI_ENTRY("eaccelerator.filter",             "",  PHP_INI_ALL, eaccelerator_filter)
 PHP_INI_END()
 
-	// clean up this request
+// clean up this request
 static void eaccelerator_clean_request(TSRMLS_D) 
 {
 	ea_used_entry *p, *r;
@@ -1010,7 +1009,7 @@ static void eaccelerator_clean_request(TSRMLS_D)
 		EACCELERATOR_UNPROTECT();
 
 		p = (ea_used_entry*)EAG(used_entries);
-		if (p != NULL || ea_mm_instance->locks != NULL) {
+		if (p != NULL) {
 			EACCELERATOR_LOCK_RW(); /** LOCK **/
 
 			// decrement the reference counts from used cache entries for this request
@@ -1022,28 +1021,6 @@ static void eaccelerator_clean_request(TSRMLS_D)
 					p->entry = NULL;
 				}
 				p = p->next;
-			}
-
-			// remove any locks that this process holds
-			if (ea_mm_instance->locks != NULL) {
-				pid_t pid = getpid();
-#ifdef ZTS
-				THREAD_T thread = tsrm_thread_id();
-#endif
-				ea_lock_entry** p = &ea_mm_instance->locks;
-				while ((*p) != NULL) {
-#ifdef ZTS
-					if ((*p)->pid == pid && (*p)->thread == thread) {
-#else
-					if ((*p)->pid == pid) {
-#endif
-						ea_lock_entry* x = *p;
-						*p = (*p)->next;
-						eaccelerator_free_nolock(x);
-					} else {
-						p = &(*p)->next;
-					}
-				}
 			}
 			EACCELERATOR_UNLOCK_RW(); /** UNLOCK **/
 		}
