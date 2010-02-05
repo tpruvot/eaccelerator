@@ -355,7 +355,6 @@ ZEND_BEGIN_MODULE_GLOBALS (eaccelerator)
 ea_cache_request_t *cache_request;  /* per thread structure for the script cache */
 zend_bool enabled;
 zend_bool optimizer_enabled;
-zend_bool check_mtime_enabled;
 zend_bool compiler;
 zend_bool in_request;
 char *cache_dir;

@@ -48,14 +48,6 @@ function eaccelerator_clean() {};
 function eaccelerator_clear() {};
 
 /**
- * Purge the cache
- * Removed all scripts that are marked for deletetion. This will happen automaticly 
- * when shared memory is needed. You are only allowed to use this function in 
- * scripts that are in the eaccelerator.admin_allowed_path
- */
-function eaccelerator_purge() {};
-
-/**
  * Get info
  * Get info about eAccelerator, this is the info that is showed in the phpinfo()
  * page. There is also some information about compile time options like the 

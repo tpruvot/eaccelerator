@@ -290,7 +290,6 @@ switch ($sec) {
 
         if (isset($_POST['clear'])) eaccelerator_clear();
         if (isset($_POST['clean'])) eaccelerator_clean();
-        if (isset($_POST['purge'])) eaccelerator_purge();
 
         $info = eaccelerator_info();
 
@@ -378,10 +377,6 @@ switch ($sec) {
 <tr>
     <td class="ec"><input type="submit" name="clean" value=" Delete expired "/></td> 
     <td class="fl">Removed all expired scripts and data from shared memory and / or disk.</td>
-</tr>
-<tr>
-    <td class="ec"><input type="submit" name="purge" value=" Purge cache "/></td> 
-    <td class="fl">Delete all 'removed' scripts from shared memory.</td>
 </tr>
 </table>
 </form>

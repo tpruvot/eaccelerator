@@ -78,7 +78,6 @@ ZEND_DECLARE_MODULE_GLOBALS(eaccelerator)
 
 /* Globals (common for each process/thread) */
 static long ea_shm_size = 0;
-long ea_shm_max = 0;
 static long ea_shm_ttl = 0;
 static long ea_shm_prune_period = 0;
 extern long ea_debug;
@@ -957,7 +956,6 @@ PHP_INI_BEGIN()
 STD_PHP_INI_ENTRY("eaccelerator.enable",        "1", PHP_INI_ALL, OnUpdateBool, enabled, zend_eaccelerator_globals, eaccelerator_globals)
 STD_PHP_INI_ENTRY("eaccelerator.optimizer",     "1", PHP_INI_ALL, OnUpdateBool, optimizer_enabled, zend_eaccelerator_globals, eaccelerator_globals)
 ZEND_INI_ENTRY1("eaccelerator.shm_size",        "0", PHP_INI_SYSTEM, eaccelerator_OnUpdateLong, &ea_shm_size)
-ZEND_INI_ENTRY1("eaccelerator.shm_max",         "0", PHP_INI_SYSTEM, eaccelerator_OnUpdateLong, &ea_shm_max)
 ZEND_INI_ENTRY1("eaccelerator.shm_ttl",         "0", PHP_INI_SYSTEM, eaccelerator_OnUpdateLong, &ea_shm_ttl)
 ZEND_INI_ENTRY1("eaccelerator.shm_prune_period", "0", PHP_INI_SYSTEM, eaccelerator_OnUpdateLong, &ea_shm_prune_period)
 ZEND_INI_ENTRY1("eaccelerator.debug",           "1", PHP_INI_SYSTEM, eaccelerator_OnUpdateLong, &ea_debug)
@@ -1277,7 +1275,6 @@ function_entry eaccelerator_functions[] = {
   PHP_FE(eaccelerator_clear, NULL)
 	PHP_FE(eaccelerator_clean, NULL)
   PHP_FE(eaccelerator_info, NULL)
-  PHP_FE(eaccelerator_purge, NULL)
   PHP_FE(eaccelerator_cached_scripts, NULL)
   #ifdef WITH_EACCELERATOR_OPTIMIZER
     PHP_FE(eaccelerator_optimizer, NULL)

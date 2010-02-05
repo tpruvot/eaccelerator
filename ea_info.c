@@ -285,34 +285,6 @@ PHP_FUNCTION(eaccelerator_clear)
 }
 /* }}} */
 
-/* {{{ PHP_FUNCTION(eaccelerator_purge): remove all 'removed' scripts from shared memory */
-PHP_FUNCTION(eaccelerator_purge)
-{
-
-    if (!isAdminAllowed(TSRMLS_C)) {
-        zend_error(E_WARNING, NOT_ADMIN_WARNING);
-        RETURN_NULL();
-    }
-/*
-	if (ea_mm_instance != NULL) {
-		ea_cache_entry *p, *q;
-		EACCELERATOR_UNPROTECT();
-		EACCELERATOR_LOCK_RW();
-		p = ea_mm_instance->removed;
-		ea_mm_instance->rem_cnt = 0;
-		ea_mm_instance->removed = NULL;
-		while (p != NULL) {
-			q = p->next;
-			eaccelerator_free_nolock(p);
-			p = q;
-		}
-		EACCELERATOR_UNLOCK_RW();
-		EACCELERATOR_PROTECT();
-	}*/
-    RETURN_NULL();
-}
-/* }}} */
-
 /* {{{ PHP_FUNCTION(eaccelerator_info): get info about eaccelerator */
 // returns info about eaccelerator as an array
 // returhs the same as eaccelerator section in phpinfo
@@ -344,9 +316,6 @@ PHP_FUNCTION (eaccelerator_info)
 	add_assoc_bool(return_value, "optimizer", (EAG (optimizer_enabled)
 		&& (ea_mm_instance != NULL)
 		&& ea_mm_instance->optimizer_enabled) ? 1 : 0);
-/*	add_assoc_bool(return_value, "check_mtime", (EAG (check_mtime_enabled)
-		&& (ea_mm_instance != NULL)
-		&& ea_mm_instance->check_mtime_enabled) ? 1 : 0);*/
 	add_assoc_long(return_value, "memorySize", ea_mm_instance->total);
 	add_assoc_long(return_value, "memoryAvailable", available);
 	add_assoc_long(return_value, "memoryAllocated", ea_mm_instance->total - available);
