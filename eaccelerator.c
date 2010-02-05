@@ -82,6 +82,7 @@ static long ea_shm_ttl = 0;
 static long ea_shm_prune_period = 0;
 extern long ea_debug;
 zend_bool ea_scripts_shm_only = 0;
+static char *cache_dir;
 
 eaccelerator_mm* ea_mm_instance = NULL;
 static int ea_is_zend_extension = 0;
@@ -168,10 +169,11 @@ static int init_mm(TSRMLS_D) {
   ea_mm_instance->optimizer_enabled = 1;
   ea_mm_instance->last_prune = time(NULL);	/* this time() call is harmless since this is init phase */
 
-	ea_script_cache = ea_cache_create(EA_HASH_SIZE);
+	ea_script_cache = ea_cache_create(cache_dir, EA_HASH_SIZE);
 	if (ea_script_cache == NULL) {
 		return FAILURE; 
 	}
+	
   ea_script_cache->compare_func = is_valid_script;
 	ea_script_cache->ttl = ea_shm_ttl;
 
@@ -962,11 +964,11 @@ ZEND_INI_ENTRY1("eaccelerator.shm_prune_period", "0", PHP_INI_SYSTEM, eaccelerat
 ZEND_INI_ENTRY1("eaccelerator.debug",           "1", PHP_INI_SYSTEM, eaccelerator_OnUpdateLong, &ea_debug)
 STD_PHP_INI_ENTRY("eaccelerator.log_file",      "", PHP_INI_SYSTEM, OnUpdateString, ea_log_file, zend_eaccelerator_globals, eaccelerator_globals)
 ZEND_INI_ENTRY1("eaccelerator.shm_only",        "0", PHP_INI_SYSTEM, eaccelerator_OnUpdateBool, &ea_scripts_shm_only)
+ZEND_INI_ENTRY1("eaccelerator.cache_dir",       "/tmp/eaccelerator", PHP_INI_SYSTEM, OnUpdateString, &cache_dir)
+PHP_INI_ENTRY("eaccelerator.filter",             "",  PHP_INI_ALL, eaccelerator_filter)
 #ifdef WITH_EACCELERATOR_INFO
 STD_PHP_INI_ENTRY("eaccelerator.allowed_admin_path",       "", PHP_INI_SYSTEM, OnUpdateString, allowed_admin_path, zend_eaccelerator_globals, eaccelerator_globals)
 #endif
-STD_PHP_INI_ENTRY("eaccelerator.cache_dir",      "/tmp/eaccelerator", PHP_INI_SYSTEM, OnUpdateString, cache_dir, zend_eaccelerator_globals, eaccelerator_globals)
-PHP_INI_ENTRY("eaccelerator.filter",             "",  PHP_INI_ALL, eaccelerator_filter)
 PHP_INI_END()
 
 /* signal handlers */
@@ -1038,7 +1040,6 @@ static void eaccelerator_crash_handler(int dummy) {
 static void eaccelerator_init_globals(zend_eaccelerator_globals *eag)
 {
 	eag->enabled = 1;
-	eag->cache_dir = NULL;
 	eag->optimizer_enabled = 1;
 	eag->compiler = 0;
 	eag->ea_log_file = '\000';
@@ -1273,7 +1274,8 @@ ZEND_END_ARG_INFO();
 function_entry eaccelerator_functions[] = {
 #ifdef WITH_EACCELERATOR_INFO
   PHP_FE(eaccelerator_caching, NULL)
-	PHP_FE(eaccelerator_clean, NULL)
+	PHP_FE(eaccelerator_prune, NULL)
+	PHP_FE(eaccelerator_purge, NULL)
   PHP_FE(eaccelerator_info, NULL)
   PHP_FE(eaccelerator_cached_scripts, NULL)
   #ifdef WITH_EACCELERATOR_OPTIMIZER

@@ -173,7 +173,7 @@ static void make_hash_dirs(char *fullpath, int lvl)
     umask(old_umask);
 }
 
-static int ea_md5(char* s, const char* prefix, const char* key TSRMLS_DC) {
+static int ea_cache_file_key(char *cache_dir, char* s, const char* prefix, const char* key TSRMLS_DC) {
     char md5str[33];
     PHP_MD5_CTX context;
     unsigned char digest[16];
@@ -185,7 +185,7 @@ static int ea_md5(char* s, const char* prefix, const char* key TSRMLS_DC) {
     PHP_MD5Update(&context, (unsigned char*)key, strlen(key));
     PHP_MD5Final(digest, &context);
     make_digest(md5str, digest);
-    snprintf(s, MAXPATHLEN-1, "%s/", EAG(cache_dir));
+    snprintf(s, MAXPATHLEN-1, "%s/", cache_dir);
     n = strlen(s);
     for (i = 0; i < EACCELERATOR_HASH_LEVEL && n < MAXPATHLEN - 1; i++) {
         s[n++] = md5str[i];
@@ -198,20 +198,12 @@ static int ea_md5(char* s, const char* prefix, const char* key TSRMLS_DC) {
 
 void ea_cache_init()
 {
-    char fullpath[MAXPATHLEN];
-
     encode_version(EACCELERATOR_VERSION, &binary_eaccelerator_version[0],
             &binary_eaccelerator_version[1]);
     encode_version(PHP_VERSION, &binary_php_version[0],
             &binary_php_version[1]);
     encode_version(ZEND_VERSION, &binary_zend_version[0],
             &binary_zend_version[1]);
-
-    if(!ea_scripts_shm_only) {
-        snprintf(fullpath, MAXPATHLEN-1, "%s/", EAG(cache_dir));
-        DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Creating cache directory %s\n", fullpath));
-        make_hash_dirs(fullpath, EACCELERATOR_HASH_LEVEL);
-    }
 }
 
 /* 
@@ -275,7 +267,7 @@ inline void header_init(ea_file_header_t *hdr)
 }
 
 /* this function does no locking */
-static ea_cache_entry* ea_cache_file_get(const char *key, void *data, 
+static ea_cache_entry* ea_cache_file_get(char *cache_dir, const char *key, void *data, 
         int (* compare_func) (ea_cache_entry *, void *))
 {
     int fd;
@@ -285,7 +277,7 @@ static ea_cache_entry* ea_cache_file_get(const char *key, void *data,
 
     DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Finding key '%s' in disk cache: ", key));
 
-    if (!ea_md5(file, "eaccelerator-", key TSRMLS_CC)) {
+    if (!ea_cache_file_key(cache_dir, file, "eaccelerator-", key TSRMLS_CC)) {
         DBG(ea_debug_printf, (EA_DEBUG_CACHE, "md5 failed\n"));
         return NULL;
     }
@@ -369,14 +361,14 @@ static ea_cache_entry* ea_cache_file_get(const char *key, void *data,
     return script;
 }
 
-static int ea_cache_file_put(ea_cache_entry *script TSRMLS_DC)
+static int ea_cache_file_put(char * cache_dir, ea_cache_entry *script TSRMLS_DC)
 {
     int fd;
     char file[MAXPATHLEN];
     ea_file_header_t header;
     int ret = 0;
 
-    if (!ea_md5(file, "eaccelerator-", script->key TSRMLS_CC)) {
+    if (!ea_cache_file_key(cache_dir, file, "eaccelerator-", script->key TSRMLS_CC)) {
         return 0;
     }
 
@@ -441,7 +433,7 @@ static ea_hashtable_t* ea_cache_hashtable_init(size_t start_size)
     ea_hashtable_t *table;
     
     // allocate table
-	table = ea_malloc_nolock(sizeof(ea_hashtable_t));
+	table = ea_malloc(sizeof(ea_hashtable_t));
     if (table == NULL) {
         DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Unable to allocate space for hashtable\n"));
         return NULL;
@@ -451,7 +443,7 @@ static ea_hashtable_t* ea_cache_hashtable_init(size_t start_size)
     table->size = start_size;
     
     // allocate storage for all slots
-    table->entries = ea_malloc_nolock(sizeof(ea_cache_entry*) * start_size);
+    table->entries = ea_malloc(sizeof(ea_cache_entry*) * start_size);
 	if (table->entries == NULL) {
 		ea_free_nolock(table);
 		DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Unable to allocate space for hashtable\n"));
@@ -715,6 +707,30 @@ static ea_cache_hashtable_prune(ea_hashtable_t *ht, time_t req_time, time_t ttl)
     EACCELERATOR_PROTECT();
 }
 
+static ea_cache_hashtable_purge(ea_hashtable_t *ht)
+{ 
+    ea_cache_entry *p = NULL;
+    ea_cache_entry *next = NULL;
+    int i;
+
+    EACCELERATOR_UNPROTECT();
+    EACCELERATOR_LOCK_RD();
+
+    for (i = 0; i < ht->size; ++i) {
+        p = ht->entries[i];
+        while (p != NULL) {
+            next = p->next;
+            ht->elements--;
+            REMOVE_ENTRY(p);
+            p = next;
+        }
+        ht->entries[i] = NULL;
+    }
+
+    EACCELERATOR_UNLOCK_RD();
+    EACCELERATOR_PROTECT();   
+}
+
 int ea_cache_put(ea_cache_request_t *request, ea_cache_entry *entry)
 {
     if (entry->alloc == ea_shared_mem) {
@@ -730,7 +746,7 @@ int ea_cache_put(ea_cache_request_t *request, ea_cache_entry *entry)
         EACCELERATOR_PROTECT();
     }
 
-    return ea_cache_file_put(entry);
+    return ea_cache_file_put(request->cache->cache_dir, entry);
 }
 
 ea_cache_entry *ea_cache_get(ea_cache_request_t *request, const char *key, void *data)
@@ -747,7 +763,7 @@ ea_cache_entry *ea_cache_get(ea_cache_request_t *request, const char *key, void 
 
     if (script == NULL) { // it's not in memory, load it from disk
         // get a script from disk cache
-        script = ea_cache_file_get(key, data, request->cache->compare_func);
+        script = ea_cache_file_get(request->cache->cache_dir, key, data, request->cache->compare_func);
 
         if (script != NULL) {
             if (script->alloc == ea_shared_mem) {
@@ -793,22 +809,24 @@ ea_cache_entry *ea_cache_get(ea_cache_request_t *request, const char *key, void 
     return script;
 }
 
-ea_cache_t *ea_cache_create(size_t size)
+ea_cache_t *ea_cache_create(char *cache_dir, size_t size)
 {
     ea_cache_t *cache;
+    char fullpath[MAXPATHLEN];
 
-    EACCELERATOR_UNPROTECT();
-    EACCELERATOR_LOCK_RW();
+    if(!ea_scripts_shm_only) {
+        snprintf(fullpath, MAXPATHLEN-1, "%s/", cache_dir);
+        DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Creating cache directory %s\n", fullpath));
+        make_hash_dirs(fullpath, EACCELERATOR_HASH_LEVEL);
+    }
 
-    cache = ea_malloc_nolock(sizeof(ea_cache_t));
+    cache = ea_malloc(sizeof(ea_cache_t));
     memset(cache, 0, sizeof(ea_cache_t));
     if (cache == NULL) {
         return NULL;   
     }
     cache->ht = ea_cache_hashtable_init(size);
-
-    EACCELERATOR_UNLOCK_RW();
-    EACCELERATOR_PROTECT();
+    cache->cache_dir = cache_dir;
 
     return cache;
 }
@@ -918,9 +936,75 @@ void ea_cache_prune(ea_cache_request_t *request)
 
     // prune hashtable
     ea_cache_hashtable_prune(request->cache->ht, request->req_time, request->cache->ttl);
+}
 
-    // prune disk
-    // TODO 
+static void ea_cache_file_purge(const char* dir)
+#ifndef ZEND_WIN32
+{
+	DIR *dp;
+	struct dirent *entry;
+	char s[MAXPATHLEN];
+	struct stat dirstat;
+	
+	if ((dp = opendir(dir)) != NULL) {
+		while ((entry = readdir(dp)) != NULL) {
+			strncpy(s, dir, MAXPATHLEN - 1);
+			strlcat(s, "/", MAXPATHLEN);
+			strlcat(s, entry->d_name, MAXPATHLEN);
+			if (strstr(entry->d_name, "eaccelerator") == entry->d_name) {
+				unlink(s);
+			}
+			if (stat(s, &dirstat) != -1) {
+				if (strcmp(entry->d_name, ".") == 0)
+					continue;
+				if (strcmp(entry->d_name, "..") == 0)
+					continue;
+				if (S_ISDIR(dirstat.st_mode)) {
+					ea_cache_file_purge(s);
+				}
+			}
+		}
+		closedir (dp);
+	} else {
+		ea_debug_error("[%s] Could not open cachedir %s\n", 
+            EACCELERATOR_EXTENSION_NAME, dir);
+	}
+}
+#else
+{
+	HANDLE  hFind;
+    WIN32_FIND_DATA wfd;
+    char path[MAXPATHLEN];
+    size_t dirlen = strlen(dir);
+  
+    memcpy(path, dir, dirlen);
+    strcpy(path + dirlen++, "\\eaccelerator*");
+
+    hFind = FindFirstFile(path, &wfd);
+	if (hFind == INVALID_HANDLE_VALUE) {
+		do {
+			strcpy(path + dirlen, wfd.cFileName);
+			if (FILE_ATTRIBUTE_DIRECTORY & wfd.dwFileAttributes) {
+				ea_cache_file_purge(path);
+			} else if (!DeleteFile(path)) {
+				ea_debug_error("[%s] Can't delete file %s: error %d\n",
+                    EACCELERATOR_EXTENSION_NAME, path, GetLastError());
+			}
+		} while (FindNextFile(hFind, &wfd));
+	}
+    FindClose (hFind);
+}
+#endif
+
+void ea_cache_purge(ea_cache_request_t *request)
+{
+    DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Pruning expired entries\n"));
+
+    // purge the hashtable
+    ea_cache_hashtable_purge(request->cache->ht);
+
+    // purge the file cache
+    ea_cache_file_purge(request->cache->cache_dir);
 }
 
 #endif /* HAVE_EACCELERATOR */

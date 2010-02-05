@@ -288,7 +288,8 @@ switch ($sec) {
         if (isset($_POST['optoff']) && function_exists('eaccelerator_optimizer')) eaccelerator_optimizer(false);
         if (isset($_POST['opton']) && function_exists('eaccelerator_optimizer')) eaccelerator_optimizer(true);
 
-        if (isset($_POST['clean'])) eaccelerator_clean();
+        if (isset($_POST['prune'])) eaccelerator_prune();
+        if (isset($_POST['purge'])) eaccelerator_purge();
 
         $info = eaccelerator_info();
 
@@ -370,8 +371,13 @@ switch ($sec) {
     <td class="h" colspan="2">Maintenance</td>
 </tr>
 <tr>
-    <td class="ec"><input type="submit" name="clean" value=" Delete expired "/></td> 
-    <td class="fl">Removed all expired scripts and data from shared memory and / or disk.</td>
+    <td class="ec"><input type="submit" name="prune" value=" Prune cache "/></td> 
+    <td class="fl">Prune all expired scripts and data from shared memory.</td>
+</tr>
+<tr>
+    <td class="ec"><input type="submit" name="purge" value=" Purge cache "/></td> 
+    <td class="fl">Purge all scripts and data from shared memory and / or disk.</td>
+
 </tr>
 </table>
 </form>

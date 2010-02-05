@@ -81,88 +81,8 @@ static int isAdminAllowed(TSRMLS_D) {
 }
 /* }}} */
 
-/* {{{ clear_filecache(): Helper function to eaccelerator_clear which finds diskcache entries in the hashed dirs and removes them */
-static void clear_filecache(const char* dir)
-#ifndef ZEND_WIN32
-{
-	DIR *dp;
-	struct dirent *entry;
-	char s[MAXPATHLEN];
-	struct stat dirstat;
-	
-	if ((dp = opendir(dir)) != NULL) {
-		while ((entry = readdir(dp)) != NULL) {
-			strncpy(s, dir, MAXPATHLEN - 1);
-			strlcat(s, "/", MAXPATHLEN);
-			strlcat(s, entry->d_name, MAXPATHLEN);
-			if (strstr(entry->d_name, "eaccelerator") == entry->d_name) {
-				unlink(s);
-			}
-			if (stat(s, &dirstat) != -1) {
-				if (strcmp(entry->d_name, ".") == 0)
-					continue;
-				if (strcmp(entry->d_name, "..") == 0)
-					continue;
-				if (S_ISDIR(dirstat.st_mode)) {
-					clear_filecache(s);
-				}
-			}
-		}
-		closedir (dp);
-	} else {
-		ea_debug_error("[%s] Could not open cachedir %s\n", EACCELERATOR_EXTENSION_NAME, dir);
-	}
-}
-#else
-{
-	HANDLE  hFind;
-    WIN32_FIND_DATA wfd;
-    char path[MAXPATHLEN];
-    size_t dirlen = strlen(dir);
-  
-    memcpy(path, dir, dirlen);
-    strcpy(path + dirlen++, "\\eaccelerator*");
-
-    hFind = FindFirstFile(path, &wfd);
-	if (hFind == INVALID_HANDLE_VALUE) {
-		do {
-			strcpy(path + dirlen, wfd.cFileName);
-			if (FILE_ATTRIBUTE_DIRECTORY & wfd.dwFileAttributes) {
-				clear_filecache(path);
-			} else if (!DeleteFile(path)) {
-				ea_debug_error("[%s] Can't delete file %s: error %d\n", EACCELERATOR_EXTENSION_NAME, path, GetLastError());
-			}
-		} while (FindNextFile(hFind, &wfd));
-	}
-    FindClose (hFind);
-}
-#endif
-/* }}} */
-
-/* {{{  clean_file: check if the given file is expired */
-static inline void clean_file(char *file, time_t t) 
-{
-	int f;
-
-	if ((f = open(file, O_RDONLY | O_BINARY)) > 0) {
-		ea_file_header_t hdr;
-		EACCELERATOR_FLOCK (f, LOCK_SH);
-		if (read(f, &hdr, sizeof(hdr)) != sizeof(hdr) 
-				|| strncmp (hdr.magic, EA_MAGIC,	8) != 0 
-				|| (hdr.mtime != 0 && hdr.mtime < t)) {
-			EACCELERATOR_FLOCK (f, LOCK_UN);
-			close (f);
-			unlink (file);
-		} else {
-			EACCELERATOR_FLOCK (f, LOCK_UN);
-			close (f);
-		}
-	}
-}
-/* }}} */
-
-/* {{{ PHP_FUNCTION(eaccelerator_clean): remove all expired scripts and data from shared memory and disk cache */
-PHP_FUNCTION(eaccelerator_clean)
+/* {{{ PHP_FUNCTION(eaccelerator_prune): remove all expired scripts from shared memory */
+PHP_FUNCTION(eaccelerator_prune)
 {
 	time_t t;
 
@@ -175,9 +95,25 @@ PHP_FUNCTION(eaccelerator_clean)
 		RETURN_NULL();
 	}
 
-	t = time (NULL);
-
 	ea_cache_prune(EAG(cache_request));
+}
+/* }}} */
+
+/* {{{ PHP_FUNCTION(eaccelerator_purge): remove all scripts from file and memory */
+PHP_FUNCTION(eaccelerator_purge)
+{
+	time_t t;
+
+	if (ea_mm_instance == NULL) {
+		RETURN_NULL();
+	}
+
+	if (!isAdminAllowed(TSRMLS_C)) {
+		zend_error(E_WARNING, NOT_ADMIN_WARNING);
+		RETURN_NULL();
+	}
+
+	ea_cache_purge(EAG(cache_request));
 }
 /* }}} */
 

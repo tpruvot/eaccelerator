@@ -2,6 +2,7 @@
 		
 		* Remove more unused stuff
 		* Implement ttl in new cache code
+		* Implement pruning and purging the memory ht and the file cache
 
 2010-02-04	Hans Rakers <hans at react.nl>
 

@@ -340,7 +340,6 @@ zend_bool enabled;
 zend_bool optimizer_enabled;
 zend_bool compiler;
 zend_bool in_request;
-char *cache_dir;
 char *ea_log_file;
 char *allowed_admin_path;
 time_t req_start;			/* time of request start (set in RINIT) */

@@ -88,6 +88,7 @@ typedef struct ea_cache_t {
     int (* compare_func) (ea_cache_entry *, void *);
     ea_cache_place place;
 		time_t ttl;																				/* the ttl for cache entries */
+		char *cache_dir;
 } ea_cache_t;
 
 /*
@@ -144,11 +145,12 @@ ea_cache_entry *ea_cache_get(ea_cache_request_t *request, const char *key, void 
 
 /**
  * Initialise a new cache with the given size as the number of initial buckets.
- * 
- * @param size The size of the hashtable
+ *
+ * @paran char * The path of the directory to create the cache in
+ * @param size_t The size of the hashtable
  * @return A newly created cache
  */
-ea_cache_t *ea_cache_create(size_t size);
+ea_cache_t *ea_cache_create(char *cache_dir, size_t size);
 
 /**
  * Initialise the cache
@@ -186,6 +188,10 @@ ea_cache_entry *ea_cache_alloc_entry(size_t size);
  */
 void ea_cache_prune(ea_cache_request_t *request);
 
+/**
+ * Purge all entries from the cache
+ */
+void ea_cache_purge(ea_cache_request_t *request);
 
 #define ea_malloc(size)        mm_malloc_lock(ea_mm_instance->mm, size);
 #define ea_free(x)             mm_free_lock(ea_mm_instance->mm, x)
@@ -205,13 +211,13 @@ void ea_cache_prune(ea_cache_request_t *request);
  * 
  * TODO reintroduce the nreloads variable
  * TODO used entry when adding it to file cache
- * TODO do ttl stuff
  * TODO do cache place stuff
- * TODO do cleaning / garbage collection / pruning / malloc2
+ * TODO do cleaning 
+ * TODO garbage collection / pruning / malloc2 -> allocation
  * TODO handle return codes in get/put
  * TODO add bit marking
  * TODO handle filename collisions
- * limit access to cache and ht outside ea_cache
+ * TODO limit access to cache and ht outside ea_cache
  */
 
 #endif /*EA_CACHE_H*/
