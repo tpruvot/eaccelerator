@@ -34,7 +34,6 @@ PHP_FUNCTION(eaccelerator_caching);
 #ifdef WITH_EACCELERATOR_OPTIMIZER
 PHP_FUNCTION(eaccelerator_optimizer);
 #endif
-PHP_FUNCTION(eaccelerator_clear);
 PHP_FUNCTION(eaccelerator_clean);
 PHP_FUNCTION(eaccelerator_info);
 PHP_FUNCTION(eaccelerator_cached_scripts);

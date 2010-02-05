@@ -288,7 +288,6 @@ switch ($sec) {
         if (isset($_POST['optoff']) && function_exists('eaccelerator_optimizer')) eaccelerator_optimizer(false);
         if (isset($_POST['opton']) && function_exists('eaccelerator_optimizer')) eaccelerator_optimizer(true);
 
-        if (isset($_POST['clear'])) eaccelerator_clear();
         if (isset($_POST['clean'])) eaccelerator_clean();
 
         $info = eaccelerator_info();
@@ -369,10 +368,6 @@ switch ($sec) {
 <table>
 <tr>
     <td class="h" colspan="2">Maintenance</td>
-</tr>
-<tr>
-    <td class="ec"><input type="submit" name="clear" value=" Clear cache "/></td> 
-    <td class="fl">Removed all scripts and data from shared memory and / or disk.</td>
 </tr>
 <tr>
     <td class="ec"><input type="submit" name="clean" value=" Delete expired "/></td> 
@@ -456,6 +451,7 @@ switch ($sec) {
 </tr>
 <?php
             $disassembler = function_exists('eaccelerator_dasm_file');
+            $ea_shm_ttl = ini_get("eaccelerator.shm_ttl");
             for ($i = 0; $i < $numres; $i++) {
                 $removed = (isset($scripts[$i]['removed']) && $scripts[$i]['removed']);
                 if ($disassembler && !$removed) {
@@ -466,8 +462,8 @@ switch ($sec) {
                     $file_col = $scripts[$i]['file'];
                 }
 
-                if ($scripts[$i]['ttl'] != 0) {
-                    $ttl_col = $scripts[$i]['ttl'] - time();
+                if ($scripts[$i]['atime'] != 0 && !empty($ea_shm_ttl)) {
+                    $ttl_col = ($scripts[$i]['atime'] + $ea_shm_ttl) - time();
                     if ($ttl_col <= 0) {
                         $ttl_col = "expired";
                     }
@@ -478,7 +474,7 @@ switch ($sec) {
 <tr>
     <td class="el"><small><?php echo $file_col ?></small></td>
     <td class="fl"><small><?php echo date('Y-m-d H:i:s', $scripts[$i]['mtime'])?></small></td>
-    <td class="fl"><small><?php echo date('Y-m-d H:i:s', $scripts[$i]['ts'])?></small></td>
+    <td class="fl"><small><?php echo date('Y-m-d H:i:s', $scripts[$i]['ctime'])?></small></td>
     <td class="fr"><small><?php echo $ttl_col ?></small></td>
     <td class="fr"><small><?php echo format_size($scripts[$i]['size'])?></small></td>
     <td class="fr"><small><?php echo number_format($scripts[$i]['hits'])?></small></td>

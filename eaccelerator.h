@@ -162,14 +162,6 @@
 #define EACCELERATOR_UNLOCK_RW()  EACCELERATOR_UNLOCK()
 #define EACCELERATOR_UNLOCK_RD()  EACCELERATOR_UNLOCK()
 
-#define EACCELERATOR_BLOCK_INTERRUPTIONS()   HANDLE_BLOCK_INTERRUPTIONS()
-#define EACCELERATOR_UNBLOCK_INTERRUPTIONS() HANDLE_UNBLOCK_INTERRUPTIONS()
-
-#define eaccelerator_malloc(size)        mm_malloc_lock(ea_mm_instance->mm, size);
-#define eaccelerator_free(x)             mm_free_lock(ea_mm_instance->mm, x)
-#define eaccelerator_malloc_nolock(size) mm_malloc_nolock(ea_mm_instance->mm, size)
-#define eaccelerator_free_nolock(x)      mm_free_nolock(ea_mm_instance->mm, x)
-
 #if (defined (__GNUC__) && __GNUC__ >= 2)
 #define EACCELERATOR_PLATFORM_ALIGNMENT (__alignof__ (align_test))
 #else
@@ -269,15 +261,6 @@ typedef struct _ea_fc_entry {
 	int htablen;
 	char htabkey[1];			/* must be last element */
 } ea_fc_entry;
-
-
-#define EA_FREE_CACHE_ENTRY_NO_LOCK(p) { if (p->alloc == ea_shared_mem)\
-    eaccelerator_free_nolock(p); else if (p->alloc == ea_emalloc) efree(p);\
-    else if (p->alloc == ea_malloc) free(p); }
-                
-#define EA_FREE_CACHE_ENTRY(p) { EACCELERATOR_LOCK_RW();\
-    EA_FREE_CACHE_ENTRY_NO_LOCK(p);\
-    EACCELERATOR_UNLOCK_RW(); }
 
 typedef struct {
 	MM *mm;

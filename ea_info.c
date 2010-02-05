@@ -177,8 +177,7 @@ PHP_FUNCTION(eaccelerator_clean)
 
 	t = time (NULL);
 
-	/* Remove expired scripts from shared memory */
-//	eaccelerator_prune (t);
+	ea_cache_prune(EAG(cache_request));
 }
 /* }}} */
 
@@ -240,51 +239,6 @@ PHP_FUNCTION(eaccelerator_caching)
 }
 /* }}} */
 
-/* {{{ PHP_FUNCTION(eaccelerator_clear): remove all unused scripts and data from shared memory and disk cache */
-PHP_FUNCTION(eaccelerator_clear)
-{
-	unsigned int i;
-	ea_cache_entry *p;
-
-	if (ea_mm_instance == NULL) {
-		RETURN_NULL();
-	}
-
-    if (!isAdminAllowed(TSRMLS_C)) {
-        zend_error(E_WARNING, NOT_ADMIN_WARNING);
-        RETURN_NULL();
-    }
-/*
-	EACCELERATOR_UNPROTECT ();
-	EACCELERATOR_LOCK_RW ();
-	for (i = 0; i < EA_HASH_SIZE; i++) {
-		p = ea_mm_instance->hash[i];
-		while (p != NULL) {
-			ea_cache_entry *r = p;
-			p = p->next;
-			ea_mm_instance->hash_cnt--;
-			if (r->use_cnt <= 0) {
-				eaccelerator_free_nolock (r);
-			} else {
-				r->removed = 1;
-				r->next = ea_mm_instance->removed;
-				ea_mm_instance->removed = r;
-				ea_mm_instance->rem_cnt++;
-			}
-		}
-		ea_mm_instance->hash[i] = NULL;
-	}
-	EACCELERATOR_UNLOCK_RW ();
-	EACCELERATOR_PROTECT ();
-
-	if(!ea_scripts_shm_only) {
-		clear_filecache(EAG(cache_dir));
-    }
-*/
-    RETURN_NULL();
-}
-/* }}} */
-
 /* {{{ PHP_FUNCTION(eaccelerator_info): get info about eaccelerator */
 // returns info about eaccelerator as an array
 // returhs the same as eaccelerator section in phpinfo
@@ -336,8 +290,8 @@ void format_cache_entry(ea_cache_entry *p, void *data)
 	array_init(script);
 	add_assoc_string(script, "file", p->key, 1);
 	add_assoc_long(script, "mtime", p->mtime);
-	add_assoc_long(script, "ts", p->ts);
-	add_assoc_long(script, "ttl", p->ttl);
+	add_assoc_long(script, "ctime", p->ctime);
+	add_assoc_long(script, "atime", p->atime);
 	add_assoc_long(script, "size", p->size);
 	add_assoc_long(script, "usecount", p->ref_cnt);
 	add_assoc_long(script, "hits", p->nhits);

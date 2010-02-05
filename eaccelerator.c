@@ -173,6 +173,7 @@ static int init_mm(TSRMLS_D) {
 		return FAILURE; 
 	}
   ea_script_cache->compare_func = is_valid_script;
+	ea_script_cache->ttl = ea_shm_ttl;
 
   EACCELERATOR_PROTECT();
   return SUCCESS;
@@ -235,7 +236,7 @@ static int eaccelerator_store(char* key, struct stat *buf,
 		eaccelerator_store_int(script, key, len, op_array, f, c TSRMLS_CC);
 
 		script->mtime = buf->st_mtime;
-		script->ts = EAG(req_start);
+		script->ctime = EAG(req_start);
 		script->filesize = buf->st_size;
 		script->size = size;
 		script->alloc = (use_shm == 1) ? ea_shared_mem : ea_emalloc;
@@ -1272,7 +1273,6 @@ ZEND_END_ARG_INFO();
 function_entry eaccelerator_functions[] = {
 #ifdef WITH_EACCELERATOR_INFO
   PHP_FE(eaccelerator_caching, NULL)
-  PHP_FE(eaccelerator_clear, NULL)
 	PHP_FE(eaccelerator_clean, NULL)
   PHP_FE(eaccelerator_info, NULL)
   PHP_FE(eaccelerator_cached_scripts, NULL)

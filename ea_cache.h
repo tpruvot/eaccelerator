@@ -2,7 +2,7 @@
    +----------------------------------------------------------------------+
    | eAccelerator project                                                 |
    +----------------------------------------------------------------------+
-   | Copyright (c) 2004 - 2007 eAccelerator                               |
+   | Copyright (c) 2004 - 2010 eAccelerator                               |
    | http://eaccelerator.net                                              |
    +----------------------------------------------------------------------+
    | This program is free software; you can redistribute it and/or        |
@@ -50,8 +50,8 @@ typedef struct ea_cache_entry {
     unsigned int hv;            /* hash value                        */
     off_t filesize;             /* file size                         */
     time_t mtime;               /* file last modification time       */
-		time_t ts;									/* timestamp of cache entry					 */
-    time_t ttl;                 /* expiration time                   */
+		time_t ctime;								/* timestamp of cache entry					 */
+    time_t atime;               /* expiration time                   */
     size_t size;                /* entry size (bytes)                */
     unsigned int nhits;         /* hits count                        */
     ea_op_array *op_array;      /* script's global scope code        */
@@ -87,6 +87,7 @@ typedef struct ea_cache_t {
     ea_hashtable_t *ht;
     int (* compare_func) (ea_cache_entry *, void *);
     ea_cache_place place;
+		time_t ttl;																				/* the ttl for cache entries */
 } ea_cache_t;
 
 /*
@@ -95,6 +96,7 @@ typedef struct ea_cache_t {
 typedef struct _ea_cache_request_t {
 	ea_cache_t *cache;
 	ea_used_entry_t *used_entries;
+	time_t req_time;																		/* the time used to update and check ttl */
 } ea_cache_request_t;
 
 /*
@@ -170,7 +172,7 @@ void ea_cache_walk_ht(ea_cache_t *cache, void (* format_func) (ea_cache_entry *,
 /**
  * Get an entry from the hashtable
  */
-ea_cache_entry* ea_cache_hashtable_get(ea_hashtable_t *ht, const char *key, 
+ea_cache_entry* ea_cache_hashtable_get(ea_hashtable_t *ht, const char *key, time_t req_time, time_t ttl, 
 		void *data, int (* compare_func) (ea_cache_entry *, void *));
 
 /**
@@ -178,6 +180,26 @@ ea_cache_entry* ea_cache_hashtable_get(ea_hashtable_t *ht, const char *key,
  * ea_shared_mem then the shared memory region needs to be protected again.
  */
 ea_cache_entry *ea_cache_alloc_entry(size_t size);
+
+/**
+ * Prune expired entries from memory and cache
+ */
+void ea_cache_prune(ea_cache_request_t *request);
+
+
+#define ea_malloc(size)        mm_malloc_lock(ea_mm_instance->mm, size);
+#define ea_free(x)             mm_free_lock(ea_mm_instance->mm, x)
+#define ea_malloc_nolock(size) mm_malloc_nolock(ea_mm_instance->mm, size)
+#define ea_free_nolock(x)      mm_free_nolock(ea_mm_instance->mm, x)
+
+/* two macros to free cache entries */
+#define EA_FREE_CACHE_ENTRY_NO_LOCK(p) { if (p->alloc == ea_shared_mem)\
+    ea_free_nolock(p); else if (p->alloc == ea_emalloc) efree(p);\
+    else if (p->alloc == ea_malloc) free(p); }
+                
+#define EA_FREE_CACHE_ENTRY(p) { EACCELERATOR_LOCK_RW();\
+    EA_FREE_CACHE_ENTRY_NO_LOCK(p);\
+    EACCELERATOR_UNLOCK_RW(); }
 
 /* refactor todo list 
  * 

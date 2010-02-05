@@ -523,7 +523,7 @@ static ea_cache_entry *get_cache_entry(const char *file) {
 		EACCELERATOR_LOCK_RW();
 		EACCELERATOR_PROTECT();
 
-		result = ea_cache_hashtable_get(ea_script_cache->ht, file, NULL, NULL);
+		result = ea_cache_hashtable_get(ea_script_cache->ht, file, time(NULL), 0, NULL, NULL);
 
 		EACCELERATOR_UNPROTECT();
 		EACCELERATOR_UNLOCK_RW();
