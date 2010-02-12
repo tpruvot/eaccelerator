@@ -1,3 +1,7 @@
+2010-02-12  Bart Vanbrabant <bart at vanbrabant.eu>
+
+		* Refactor the cache to make it more general
+
 2010-02-05  Bart Vanbrabant <bart at vanbrabant.eu>
 		
 		* Remove more unused stuff

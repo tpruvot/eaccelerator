@@ -550,7 +550,8 @@ PHP_FUNCTION(eaccelerator_dasm_file)
 {
     const char *file;
     int file_len;
-    ea_cache_entry *p;
+    ea_cache_entry *entry;
+	ea_script_t *p;
     ea_fc_entry *fc;
     zval *functions;
     zval *classes;
@@ -562,7 +563,9 @@ PHP_FUNCTION(eaccelerator_dasm_file)
         RETURN_NULL();
     }
 
-    p = get_cache_entry(file);
+    entry = get_cache_entry(file);
+	p = (ea_script_t *)entry->data;
+
     if (p == NULL) {
         RETURN_NULL();
     }
@@ -613,9 +616,9 @@ PHP_FUNCTION(eaccelerator_dasm_file)
 	EACCELERATOR_UNPROTECT();
 	EACCELERATOR_LOCK_RW();
 
-	p->ref_cnt--;
-	if (p->ref_cnt <= 0) {
-		EA_FREE_CACHE_ENTRY_NO_LOCK(p);
+	entry->ref_cnt--;
+	if (entry->ref_cnt <= 0) {
+		EA_FREE_CACHE_ENTRY_NO_LOCK(entry);
 	}
 
 	EACCELERATOR_UNLOCK_RW();

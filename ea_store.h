@@ -31,9 +31,9 @@
 #include "ea_cache.h"
 
 size_t calc_zval(zval *z TSRMLS_DC);
-size_t calc_size(char *key, zend_op_array *op_array, Bucket *f, Bucket *c TSRMLS_DC);
+size_t calc_size(zend_op_array *op_array, Bucket *f, Bucket *c TSRMLS_DC);
 
 void store_zval(char **p, zval *z TSRMLS_DC);
-void eaccelerator_store_int(ea_cache_entry *entry, char *key, int len, zend_op_array *op_array, Bucket *f, Bucket *c TSRMLS_DC);
+void eaccelerator_store_int(ea_script_t *entry, zend_op_array *op_array, Bucket *f, Bucket *c TSRMLS_DC);
 
 #endif /* EA_STORE_H */

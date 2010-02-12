@@ -355,7 +355,7 @@ static ea_cache_entry* ea_cache_file_get(char *cache_dir, const char *key, void 
     // fix the pointers
     script->next = NULL;
     script->ref_cnt = 0;
-    eaccelerator_fixup(script, header.base TSRMLS_CC);
+    eaccelerator_fixup(script->data, header.base TSRMLS_CC);
 
     DBG(ea_debug_printf, (EA_DEBUG_CACHE, "done\n"));
     return script;
@@ -908,24 +908,44 @@ void ea_cache_rshutdown(ea_cache_request_t *request) {
     request = NULL;
 }
 
-ea_cache_entry *ea_cache_alloc_entry(size_t size)
+ea_cache_entry *ea_cache_alloc_entry(char *key, size_t len, size_t size)
 {
     ea_cache_entry *entry = NULL;
+    size_t alloc_size = size;
+    char *data = NULL;
+
+    // add the size of the cache structure
+    ADDSIZE(alloc_size, offsetof(ea_cache_entry, key) + len + 1);
+
+    // TODO: align needed here?
 
     EACCELERATOR_UNPROTECT();
-    entry = ea_malloc(size);
+    entry = ea_malloc(alloc_size);
     if (entry == NULL) {
         EACCELERATOR_PROTECT();
-        entry = emalloc(size);
+        entry = emalloc(alloc_size);
         if (entry == NULL) {
             return NULL;
         }
-        memset(entry, 0, size);
+        memset(entry, 0, alloc_size);
         entry->alloc = ea_emalloc;
     } else {
-        memset(entry, 0, size);
+        memset(entry, 0, alloc_size);
         entry->alloc = ea_shared_mem;
     }
+
+    // put the key in the cache structure and set the data pointer
+    memcpy(entry->key, key, len + 1);
+    data = (char *)entry;
+    data += (offsetof(ea_cache_entry, key) + len + 1);
+    EACCELERATOR_ALIGN(data);
+
+    entry->data = (void *)data;
+    entry->size = size;
+
+    fprintf(stderr, "entry=%p data=%p entry->data=%p len=%d\n", entry, data, 
+        entry->data, offsetof(ea_cache_entry, key) + len + 1);
+    fflush(stderr);
 
     return entry;
 }

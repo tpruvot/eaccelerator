@@ -39,10 +39,6 @@
 /* size.                                                                      */
 /******************************************************************************/
 
-// add the given length to the size var and aling it
-#define ADDSIZE(size, len) (size) += (len); \
-    EA_SIZE_ALIGN(size);
-
 #ifndef DEBUG
 inline
 #endif
@@ -276,16 +272,14 @@ static size_t calc_class_entry(zend_class_entry * from TSRMLS_DC)
 
 /* Calculate the size of a cache entry with its given op_array and function and
    class bucket */
-size_t calc_size(char *key, zend_op_array * op_array, Bucket * f, Bucket * c TSRMLS_DC)
+size_t calc_size(zend_op_array * op_array, Bucket * f, Bucket * c TSRMLS_DC)
 {
     Bucket *b;
     char *x;
-    int len = strlen(key);
     size_t size = 0;
 
+    size = sizeof(ea_script_t);
     zend_hash_init(&EAG(strings), 0, NULL, NULL, 0);
-    ADDSIZE(size, offsetof(ea_cache_entry, key) + len + 1);
-    zend_hash_add(&EAG(strings), key, len + 1, &key, sizeof(char *), NULL);
     b = c;
     while (b != NULL) {
         ADDSIZE(size, offsetof(ea_fc_entry, htabkey) + b->nKeyLength);
@@ -832,48 +826,44 @@ static ea_class_entry *store_class_entry(char **at, zend_class_entry * from TSRM
 
 /* Create a cache entry from the given op_array, functions and classes of a
    script */
-void eaccelerator_store_int(ea_cache_entry *entry, char *key, int len, zend_op_array *op_array, Bucket *f, Bucket *c TSRMLS_DC)
+void eaccelerator_store_int(ea_script_t *script, zend_op_array *op_array, 
+        Bucket *functions, Bucket *classes TSRMLS_DC)
 {
-    char *p;
+    char *p, *x;
     ea_fc_entry *fc;
     ea_fc_entry *q;
-    char *x;
 
     DBG(ea_debug_pad, (EA_DEBUG TSRMLS_CC));
-    DBG(ea_debug_printf, (EA_DEBUG, "[%d] eaccelerator_store_int: key='%s'\n", getpid (), key));
+    DBG(ea_debug_printf, (EA_DEBUG, "[%d] eaccelerator_store_int:\n", getpid()));
 
     zend_hash_init(&EAG(strings), 0, NULL, NULL, 0);
 
-    p = (char *)entry;
-    x = ALLOCATE(&p, offsetof(ea_cache_entry, key) + len + 1);
-    x = NULL;
+    p = (char *)script;
 
-    entry->nhits = 0;
-    entry->ref_cnt = 0;
-    entry->f_head = NULL;
-    entry->c_head = NULL;
+    p = ALLOCATE(&p, sizeof(ea_script_t));
 
-    memcpy(entry->key, key, len + 1);
-    x = entry->key;
-    zend_hash_add(&EAG(strings), key, len + 1, &x, sizeof(char *), NULL);
+    script->op_array = NULL;
+    script->f_head = NULL;
+    script->c_head = NULL;
 
     q = NULL;
-    while (c != NULL) {
+    // map out a list of all classes that need to be stored in memory
+    while (classes != NULL) {
         DBG(ea_debug_pad, (EA_DEBUG TSRMLS_CC));
         DBG(ea_debug_printf, (EA_DEBUG, "[%d] eaccelerator_store_int:     class hashkey=", getpid ()));
-        DBG(ea_debug_binary_print, (EA_DEBUG, c->arKey, c->nKeyLength));
+        DBG(ea_debug_binary_print, (EA_DEBUG, classes->arKey, classes->nKeyLength));
 
-        fc = (ea_fc_entry *)ALLOCATE(&p, offsetof(ea_fc_entry, htabkey) + c->nKeyLength);
+        fc = (ea_fc_entry *)ALLOCATE(&p, offsetof(ea_fc_entry, htabkey) + classes->nKeyLength);
 
-        memcpy(fc->htabkey, c->arKey, c->nKeyLength);
-        fc->htablen = c->nKeyLength;
+        memcpy(fc->htabkey, classes->arKey, classes->nKeyLength);
+        fc->htablen = classes->nKeyLength;
         fc->next = NULL;
-        fc->fc = *(zend_class_entry **) c->pData;
-        c = c->pListNext;
+        fc->fc = *(zend_class_entry **) classes->pData;
+        classes = classes->pListNext;
         x = fc->htabkey;
         zend_hash_add(&EAG(strings), fc->htabkey, fc->htablen, &x, sizeof(char *), NULL);
         if (q == NULL) {
-            entry->c_head = fc;
+            script->c_head = fc;
         } else {
             q->next = fc;
         }
@@ -881,39 +871,41 @@ void eaccelerator_store_int(ea_cache_entry *entry, char *key, int len, zend_op_a
     }
 
     q = NULL;
-    while (f != NULL) {
+    // map out a list of all functions that need to be stored in memory
+    while (functions != NULL) {
         DBG(ea_debug_pad, (EA_DEBUG TSRMLS_CC));
-        DBG(ea_debug_printf, (EA_DEBUG, "[%d] eaccelerator_store_int:     function hashkey='%s'\n", getpid (), f->arKey));
+        DBG(ea_debug_printf, (EA_DEBUG, "[%d] eaccelerator_store_int:     function hashkey='%s'\n", 
+            getpid (), functions->arKey));
 
-        fc = (ea_fc_entry *)ALLOCATE(&p, offsetof (ea_fc_entry, htabkey) + f->nKeyLength);
+        fc = (ea_fc_entry *)ALLOCATE(&p, offsetof (ea_fc_entry, htabkey) + functions->nKeyLength);
 
-        memcpy(fc->htabkey, f->arKey, f->nKeyLength);
-        fc->htablen = f->nKeyLength;
+        memcpy(fc->htabkey, functions->arKey, functions->nKeyLength);
+        fc->htablen = functions->nKeyLength;
         fc->next = NULL;
-        fc->fc = f->pData;
-        f = f->pListNext;
+        fc->fc = functions->pData;
+        functions = functions->pListNext;
         x = fc->htabkey;
         zend_hash_add(&EAG(strings), fc->htabkey, fc->htablen, &x, sizeof(char *), NULL);
         if (q == NULL) {
-            entry->f_head = fc;
+            script->f_head = fc;
         } else {
             q->next = fc;
         }
         q = fc;
     }
 
-    q = entry->c_head;
+    q = script->c_head;
     while (q != NULL) {
         q->fc = store_class_entry(&p, (zend_class_entry *) q->fc TSRMLS_CC);
         q = q->next;
     }
 
-    q = entry->f_head;
+    q = script->f_head;
     while (q != NULL) {
         q->fc = store_op_array(&p, (zend_op_array *) q->fc TSRMLS_CC);
         q = q->next;
     }
-    entry->op_array = store_op_array(&p, op_array TSRMLS_CC);
+    script->op_array = store_op_array(&p, op_array TSRMLS_CC);
 
     zend_hash_destroy(&EAG(strings));
 }

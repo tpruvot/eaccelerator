@@ -211,16 +211,16 @@ static void shutdown_mm(TSRMLS_D) {
 static int eaccelerator_store(char* key, struct stat *buf,
 												zend_op_array* op_array,
                         Bucket* f, Bucket *c TSRMLS_DC) {
-	ea_cache_entry *script;
+	ea_cache_entry *entry;
+	ea_script_t *script;
 
-	int len = strlen(key);
-	int use_shm = 1;
-	int size = 0;
+	size_t len = strlen(key);
+	size_t size = 0;
 	int ret = 0;
 
 	// calculate the script size
 	zend_try {
-		size = calc_size(key, op_array, f, c TSRMLS_CC);
+		size = calc_size(op_array, f, c TSRMLS_CC);
 	} zend_catch {
 		size =  0;
 	} zend_end_try();
@@ -232,25 +232,24 @@ static int eaccelerator_store(char* key, struct stat *buf,
 	DBG(ea_debug_pad, (EA_DEBUG TSRMLS_CC));
 	DBG(ea_debug_printf, (EA_DEBUG, "[%d] eaccelerator_store:  returned %d, mm=%x\n", getpid(), size, ea_mm_instance->mm));
 
-	script = ea_cache_alloc_entry(size);
+	entry = ea_cache_alloc_entry(key, len, size);
 
-	if (script) {
-		eaccelerator_store_int(script, key, len, op_array, f, c TSRMLS_CC);
+	if (entry) {
+		script = entry->data;
+		eaccelerator_store_int(script, op_array, f, c TSRMLS_CC);
 
-		script->mtime = buf->st_mtime;
-		script->ctime = EAG(req_start);
-		script->filesize = buf->st_size;
-		script->size = size;
-		script->alloc = (use_shm == 1) ? ea_shared_mem : ea_emalloc;
+		entry->mtime = buf->st_mtime;
+		entry->ctime = EAG(req_start);
+		entry->filesize = buf->st_size;
 
 		EACCELERATOR_PROTECT();
 
-		ret = ea_cache_put(EAG(cache_request), script);
+		ret = ea_cache_put(EAG(cache_request), entry);
 
 		mm_check_mem((void *)script);
 
-		if (script->alloc == ea_emalloc) {
-			efree(script);
+		if (entry->alloc == ea_emalloc) {
+			efree(entry);
 		} else {
 			EACCELERATOR_PROTECT();
 		}
@@ -262,12 +261,18 @@ static int eaccelerator_store(char* key, struct stat *buf,
    the disk cache is checked */
 static zend_op_array* eaccelerator_restore(char *realname, struct stat *buf,
                                       time_t compile_time TSRMLS_DC) {
-	ea_cache_entry *script;
+	ea_cache_entry *entry;
+	ea_script_t *script;
 	zend_op_array *op_array = NULL;
 
-  script = ea_cache_get(EAG(cache_request), realname, (void *)buf);
+  entry = ea_cache_get(EAG(cache_request), realname, (void *)buf);
 
-	if (script != NULL && script->op_array != NULL) {
+	if (entry == NULL) {
+		return NULL;
+	}
+	script = (ea_script_t *)entry->data;
+
+	if (script->op_array != NULL) {
 		EAG(class_entry) = NULL;
 		op_array = restore_op_array(NULL, script->op_array TSRMLS_CC);
 		if (op_array != NULL) {
@@ -276,14 +281,14 @@ static zend_op_array* eaccelerator_restore(char *realname, struct stat *buf,
 			/* only restore the classes and functions when we restore this script 
 			 * for the first time. 
 			 */
-			if (!zend_hash_exists(&EAG(restored), script->key, strlen(script->key))) {
+			if (!zend_hash_exists(&EAG(restored), entry->key, strlen(entry->key))) {
 				for (e = script->c_head; e!=NULL; e = e->next) {
 					restore_class(realname, e TSRMLS_CC);
 				}
 				for (e = script->f_head; e!=NULL; e = e->next) {
 					restore_function(realname, e TSRMLS_CC);
 				}
-				zend_hash_add(&EAG(restored), script->key, strlen(script->key), NULL, 0, NULL);  
+				zend_hash_add(&EAG(restored), entry->key, strlen(entry->key), NULL, 0, NULL);  
 			}
 		}
 #ifdef ZEND_COMPILE_DELAYED_BINDING

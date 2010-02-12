@@ -234,7 +234,7 @@ static void fixup_class_entry(char *base, ea_class_entry *from TSRMLS_DC)
     fixup_hash(base, &from->function_table,(fixup_bucket_t) fixup_op_array TSRMLS_CC);
 }
 
-void eaccelerator_fixup(ea_cache_entry *p, void *base_pointer TSRMLS_DC)
+void eaccelerator_fixup(ea_script_t *p, void *base_pointer TSRMLS_DC)
 {
     ea_fc_entry *q;
     char *base;

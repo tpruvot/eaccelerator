@@ -33,9 +33,9 @@
 #define EA_CACHE_DYN_HT
 #define EACCELERATOR_HASH_LEVEL 2
 #define EA_HASH_SIZE            2
-#define EA_HASH_MAX							(EA_HASH_SIZE-1)
+#define EA_HASH_MAX				(EA_HASH_SIZE-1)
 
-typedef enum ea_alloc_place {
+typedef enum _ea_alloc_place {
     ea_shared_mem,
     ea_emalloc,
     ea_malloc
@@ -50,17 +50,20 @@ typedef struct ea_cache_entry {
     unsigned int hv;            /* hash value                        */
     off_t filesize;             /* file size                         */
     time_t mtime;               /* file last modification time       */
-		time_t ctime;								/* timestamp of cache entry					 */
+    time_t ctime;				/* timestamp of cache entry			 */
     time_t atime;               /* expiration time                   */
     size_t size;                /* entry size (bytes)                */
     unsigned int nhits;         /* hits count                        */
-    ea_op_array *op_array;      /* script's global scope code        */
-    ea_fc_entry *f_head;        /* list of nested functions          */
-    ea_fc_entry *c_head;        /* list of nested classes            */
     int ref_cnt;                /* how many processes uses the entry */
     void *data;                 /* the data this entry points to     */
     char key[1];                /* real file name (must be last el.) */
 } ea_cache_entry;
+
+typedef struct _ea_script_t {
+    ea_op_array *op_array;      /* script's global scope code        */
+    ea_fc_entry *f_head;        /* list of nested functions          */
+    ea_fc_entry *c_head;        /* list of nested classes            */
+} ea_script_t;
 
 /*
  * Linked list of ea_cache_entry which are used by process/thread
@@ -87,8 +90,8 @@ typedef struct ea_cache_t {
     ea_hashtable_t *ht;
     int (* compare_func) (ea_cache_entry *, void *);
     ea_cache_place place;
-		time_t ttl;																				/* the ttl for cache entries */
-		char *cache_dir;
+    time_t ttl;			                                /* the ttl for cache entries */
+    char *cache_dir;
 } ea_cache_t;
 
 /*
@@ -181,7 +184,7 @@ ea_cache_entry* ea_cache_hashtable_get(ea_hashtable_t *ht, const char *key, time
  * Allocate and initialise a cache entry. If the alloc type of the entry is
  * ea_shared_mem then the shared memory region needs to be protected again.
  */
-ea_cache_entry *ea_cache_alloc_entry(size_t size);
+ea_cache_entry *ea_cache_alloc_entry(char *key, size_t key_len, size_t size);
 
 /**
  * Prune expired entries from memory and cache
@@ -207,6 +210,10 @@ void ea_cache_purge(ea_cache_request_t *request);
     EA_FREE_CACHE_ENTRY_NO_LOCK(p);\
     EACCELERATOR_UNLOCK_RW(); }
 
+// add the given length to the size var and aling it
+#define ADDSIZE(size, len) (size) += (len); \
+    EA_SIZE_ALIGN(size);
+
 /* refactor todo list 
  * 
  * TODO reintroduce the nreloads variable
@@ -223,5 +230,5 @@ void ea_cache_purge(ea_cache_request_t *request);
 #endif /*EA_CACHE_H*/
 
 /*
- * vim: noet tabstop=2 softtabstop=2 shiftwidth=2
+ * vim: noet tabstop=4 softtabstop=4 shiftwidth=4 expandtab
  */
