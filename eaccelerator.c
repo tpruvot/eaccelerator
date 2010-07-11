@@ -617,11 +617,6 @@ ZEND_DLEXPORT zend_op_array* eaccelerator_compile_file(zend_file_handle *file_ha
     return t;
   }
 
-  /* only restore file when open_basedir allows it */
-  if (PG(open_basedir) && php_check_open_basedir(realname TSRMLS_CC)) {
-    zend_error(E_ERROR, "Can't load %s, open_basedir restriction.", file_handle->filename);
-  }
-
   if (buf.st_mtime >= EAG(req_start) && ea_debug > 0) {
 		ea_debug_log("EACCELERATOR: Warning: \"%s\" is cached but it's mtime is in the future.\n", file_handle->filename);
   }
@@ -1060,10 +1055,10 @@ static void eaccelerator_globals_dtor(zend_eaccelerator_globals *eag)
 	/* free the list of patterns */
 	p = eag->pattern_list;
 	while (p != NULL) {
-		q = p;
+		q = p->next;
 		free(p->pattern);
 		free(p);
-		p = q->next;
+		p = q;
 	}
 	eag->pattern_list = NULL;
 }
@@ -1091,8 +1086,6 @@ static int eaccelerator_check_php_version(TSRMLS_D) {
 }
 
 PHP_MINIT_FUNCTION(eaccelerator) {
-  char fullpath[MAXPATHLEN];
-
   if (type == MODULE_PERSISTENT) {
 #ifndef ZEND_WIN32
     if (strcmp(sapi_module.name,"apache") == 0) {
@@ -1120,6 +1113,7 @@ PHP_MINIT_FUNCTION(eaccelerator) {
   ea_is_extension = 1;
 
   ea_debug_init(TSRMLS_C);
+	
 	ea_cache_init();
 
   if (type == MODULE_PERSISTENT &&
@@ -1217,7 +1211,7 @@ PHP_RINIT_FUNCTION(eaccelerator)
 #endif*/
 
 	DBG(ea_debug_printf, (EA_DEBUG, "[%d] Leave RINIT\n",getpid()));
-	
+
 	return SUCCESS;
 }
 
@@ -1284,7 +1278,7 @@ function_entry eaccelerator_functions[] = {
   PHP_FE(eaccelerator_info, NULL)
   PHP_FE(eaccelerator_cached_scripts, NULL)
   #ifdef WITH_EACCELERATOR_OPTIMIZER
-    PHP_FE(eaccelerator_optimizer, NULL)
+  PHP_FE(eaccelerator_optimizer, NULL)
   #endif
 #endif
 #ifdef WITH_EACCELERATOR_DISASSEMBLER

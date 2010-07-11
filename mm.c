@@ -195,6 +195,8 @@ static int strxcat(char* dst, const char* src, int size) {
 #define MM_SEM_TYPE "spinlock"
 #define MM_SEM_CAN_ATTACH
 
+#include <sched.h>
+
 typedef struct mm_mutex {
     volatile unsigned int lock;
     volatile pid_t pid;
@@ -222,7 +224,7 @@ static int mm_do_lock(mm_mutex* lock, int kind)
             return 1;
         }
         _spinlock_unlock(lock);
-        //sched_yield();
+        sched_yield();
     }
     return 1;
 }

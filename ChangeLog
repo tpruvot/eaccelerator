@@ -1,3 +1,40 @@
+2010-07-11 Bart Vanbrabant <bart@vanbrabant.eu>
+
+    * Changed the way the cache directory is created:
+		- The forked process creates the cache dir and makes it world writable
+		- The first request creates a subdir with the userid of the process and
+		with permissions 700.
+
+	* Comment out an unused function to support compilin with -Werror
+	* Add sched.h include to fix a compiler warning
+
+2010-06-03	Hans Rakers <hans at react.nl>
+
+		* Fixed compilation against php-5.1. This closes ticket #426.
+
+2010-02-25	Hans Rakers <hans at react.nl>
+
+		* Fixed class static variable restore where parent was protected
+		  static and child was public static. This would lead to error
+		  'Access to undeclared static property' upon restore from cache
+		* Added proper handling of class properties during storing in
+		  cache. Public/private/protected is properly handled now. Somehow
+		  this was a long overdue TODO spotted by running the testsuite.
+		  This fixes ticket #408
+		* Small fix that solves some issues with lambda (closure)
+		  functions. This solves ticket #405
+
+2010-02-24	Hans Rakers <hans at react.nl>
+
+		* Fixed double free in eaccelerator_globals_dtor. This closes
+		  ticket #404
+
+2010-02-18	Hans Rakers <hans at react.nl>
+
+		* Remove some leftover debug output that broke compilation with
+		  php-5.2 and --with-eaccelerator-debug
+		* php_check_open_basedir only needs to be called when restoring
+
 2010-02-12  Bart Vanbrabant <bart at vanbrabant.eu>
 
 		* Refactor the cache to make it more general
@@ -19,6 +56,9 @@
 		* Remove some leftovers from the lock api remotes/origin/master
 		* Fix a small compile warning in a printf function
 		* Get rid of all EAG(mem) globals
+		* Remove some leftovers from the lock api
+		* Now really add the sched_yield command and not only in commented
+		out
 
 2010-02-03	Bart Vanbrabant <bart at vanbrabant.eu>
 
