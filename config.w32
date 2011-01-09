@@ -1,5 +1,4 @@
 // $Id$
-// vim:ft=javascript
 
 ARG_ENABLE("eaccelerator", "Enable eaccelerator support", "no");
 

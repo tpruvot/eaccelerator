@@ -16,8 +16,9 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 # define THANKS_GUYS ""
 #endif
 
-#define VERSIONDESC 1,0,0,427
-#define VERSIONSTR EACCELERATOR_VERSION " r427 for PHP " PHP_VERSION
+//Use date on git
+#define VERSIONDESC 1,0,2011,0109
+#define VERSIONSTR EACCELERATOR_VERSION " for PHP " PHP_VERSION
 
 //Version
 VS_VERSION_INFO VERSIONINFO
@@ -45,7 +46,7 @@ BEGIN
             VALUE "LegalCopyright", "Copyright © 2011 eAccelerator\0"
             VALUE "OriginalFilename", FILE_NAME "\0"
             VALUE "PrivateBuild", "\0"
-            VALUE "ProductName", "PHP eAccelerator\0"
+            VALUE "ProductName", "PHP eAccelerator (github master)\0"
             VALUE "ProductVersion", VERSIONSTR
             VALUE "URL", "http://www.eaccelerator.net/"
         END
