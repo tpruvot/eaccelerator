@@ -41,7 +41,15 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <unistd.h>
+
+#ifdef WIN32
+#  include <limits.h>
+#else
+#  ifdef HAVE_UNISTD_H
+#    include <unistd.h>
+#  endif
+#endif
+
 #include <string.h>
 
 static int binary_eaccelerator_version[2];
@@ -274,6 +282,7 @@ static ea_cache_entry* ea_cache_file_get(char *cache_dir, const char *key, void 
     char file[MAXPATHLEN];
     ea_file_header_t header;
     ea_cache_entry *script;
+    TSRMLS_FETCH();
 
     DBG(ea_debug_printf, (EA_DEBUG_CACHE, "Finding key '%s' in disk cache: ", key));
 
@@ -361,12 +370,13 @@ static ea_cache_entry* ea_cache_file_get(char *cache_dir, const char *key, void 
     return script;
 }
 
-static int ea_cache_file_put(char * cache_dir, ea_cache_entry *script TSRMLS_DC)
+static int ea_cache_file_put(char * cache_dir, ea_cache_entry *script)
 {
     int fd;
     char file[MAXPATHLEN];
     ea_file_header_t header;
     int ret = 0;
+    TSRMLS_FETCH();
 
     if (!ea_cache_file_key(cache_dir, file, "eaccelerator-", script->key TSRMLS_CC)) {
         return 0;
